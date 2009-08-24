@@ -6,6 +6,9 @@ IP ownership has now been resolved. This code is released under
 artistic_2 license and any changes made,bugs found, general information
 additions should be presented back to the author.
 
+0.16	24/08/2009
+	Bug in the Cisco module causing the DOCSIS parser to fail
+	Thanks to Rui Dias for providing debug and comms to track it down
 0.15	20/07/2009
 	IP ownership resolved and now release under the artistic_2 license.
 0.14	17/07/2009

@@ -14,11 +14,11 @@ IPDR::Collection::Cisco - IPDR Collection Client (Cisco Specification)
 
 =head1 VERSION
 
-Version 0.15
+Version 0.16
 
 =cut
 
-our $VERSION = '0.15';
+our $VERSION = '0.16';
 
 =head1 SYNOPSIS
 
@@ -74,20 +74,17 @@ use the different module for Cisco, all others use Client.
                         ]
                         );
 
-    # We send a connect message to the IPDR server
-    $ipdr_client->connect();
+    # Check for data from the IPDR server.
+    my $status = $ipdr_client->connect();
 
-    # If we do not connect stop.
-    if ( !$ipdr_client->connected )
+    if ( !$status )
         {
-        print "Can not connect to destination.\n";
+        print "Status was '".$ipdr_client->return_status()."'\n";
+        print "Error was '".$ipdr_client->return_error()."'\n";
         exit(0);
         }
 
-    # We now send a connect message
     $ipdr_client->check_data_available();
-
-    print "Error was '".$ipdr_client->get_error()."'\n";
 
     exit(0);
 
@@ -169,18 +166,6 @@ client/server configuration. The function returns 1 on success, 0
 on failure. It should be called with
 
     $ipdr_client->connect();
-
-=head2 connected
-
-You can check if the connect function succeeded. It should return 0
-on not connected and 1 if the socket/connection was opened. It can be
-checked with
-
-    if ( !$ipdr_client->connected )
-        {
-        print "Can not connect to destination.\n";
-        exit(0);
-        }
 
 =head2 check_data_available
 
@@ -280,16 +265,17 @@ foreach my $handle ( @{$current_handles} )
 					#setsid;
 					foreach my $handler ( keys %{$handles} )
 						{ if ( $handler ne $handle ) { delete ${$handles}{$handler}; } }
-					if ( $self->{_GLOBAL}{'Type'}=~/^docsis$/i )
+					if ( $self->{_GLOBAL}{'Type'}=~/^docsis/ig )
 						{
-						$self->_process_docsis($handle->peerhost(),${$handles}{$handle});
+						my %result = $self->_process_docsis($handle->peerhost(),${$handles}{$handle});
 						if ( $self->{_GLOBAL}{'complete_decoded_data'}{$handle->peerhost()} )
 							{
 							$self->{_GLOBAL}{'DataHandler'}->(
 								$handle->peerhost(),
 								$handle->peerport(),
-								$self->{_GLOBAL}{'complete_decoded_data'}{$handle->peerhost()}
+								\%result
 								);
+							}
 						}
 						else
 						{
@@ -301,7 +287,6 @@ foreach my $handle ( @{$current_handles} )
 					waitpid($child,0);
 					exit(0);
 					}
-				}
 			if ( $self->{_GLOBAL}{'complete_decoded_data'}{ $handle->peerhost() } )
 				{ undef $self->{_GLOBAL}{'complete_decoded_data'}{ $handle->peerhost() }; }
 			delete ${$handles}{$handle};
@@ -395,7 +380,7 @@ my ( $raw_data ) = shift;
 my ( $exported_data ) = $self->{_GLOBAL}{'complete_decoded_data'};
 
 my ( %result, $direction );
-if ( $raw_data!~/ipdrdoc/i )
+if ( $raw_data!~/ipdrdoc/ig )
         { return \%result; }
 
 # now we should really use a XML parser
@@ -457,7 +442,7 @@ foreach my $entry ( @body_parts )
 		{
 		my ( $parent, $test ) = (split(/-/,$attribute))[0,1];
 		next unless $inner_keys{ ${$template_data}{$version}{$attribute} };
-		${$exported_data}{$host_ip}{$entry_count}{$test} = $inner_keys{ ${$template_data}{$version}{$attribute} };
+		$result{$host_ip}{$entry_count}{$test} = $inner_keys{ ${$template_data}{$version}{$attribute} };
 		}
 		
 #        foreach my $attribute ( keys %{${$template_data}{$version}} )
@@ -477,7 +462,7 @@ foreach my $entry ( @body_parts )
 	$entry_count++;
         }
 
-return \%result;
+return %result;
 }
 
 sub return_template_data

@@ -6,10 +6,11 @@ use IPDR::Collection::Cisco;
 my $ipdr_client = new IPDR::Collection::Cisco (
 			[
 			VendorID => 'IPDR Client',
-			ServerIP => '192.168.1.1',
+			ServerIP => '80.194.79.218',
 			ServerPort => '5000',
 			Timeout => 2,
 			Type => 'docsis',
+			XMLDirectory =>'/home/poller/',
 			DataHandler => \&display_data,
 			]
 			);
@@ -33,6 +34,8 @@ sub display_data
 my ( $remote_ip ) = shift;
 my ( $remote_port ) = shift;
 my ( $data ) = shift;
+
+print "display Data is '$data'\n";
 
 foreach my $sequence ( sort { $a<=> $b } keys %{$data} )
 	{
