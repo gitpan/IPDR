@@ -6,11 +6,11 @@ IPDR - IPDR Data Suite
 
 =head1 VERSION
 
-Version 0.16
+Version 0.19
 
 =cut
 
-our $VERSION = '0.16';
+our $VERSION = '0.19';
 
 =head1 SYNOPSIS
 

@@ -6,11 +6,10 @@ use IPDR::Collection::Cisco;
 my $ipdr_client = new IPDR::Collection::Cisco (
 			[
 			VendorID => 'IPDR Client',
-			ServerIP => '80.194.79.218',
+			ServerIP => '192.168.1.1',
 			ServerPort => '5000',
 			Timeout => 2,
 			Type => 'docsis',
-			XMLDirectory =>'/home/poller/',
 			DataHandler => \&display_data,
 			]
 			);
@@ -34,17 +33,27 @@ sub display_data
 my ( $remote_ip ) = shift;
 my ( $remote_port ) = shift;
 my ( $data ) = shift;
+my ( $self ) = shift;
 
-print "display Data is '$data'\n";
+foreach my $host ( sort { $a<=> $b } keys %{$data} )
+        {
+        print "Host  is '$host' \n";
+        foreach my $document_attribute ( keys %{${$data}{$host}{'document'}} )
+                {
+                print "Document id '$document_attribute' value is '${$data}{$host}{'document'}{$document_attribute}'\n";
+                }
 
-foreach my $sequence ( sort { $a<=> $b } keys %{$data} )
-	{
-	print "Sequence  is '$sequence'\n";
-	foreach my $attribute ( keys %{${$data}{$sequence}} )
-		{
-		print "Sequence '$sequence' attribute '$attribute' value '${$data}{$sequence}{$attribute}'\n";
-		}
-	}
+        foreach my $sequence ( keys %{${$data}{$host}} )
+                {
+                next if $sequence=~/^document$/i;
+                foreach my $attribute ( keys %{${$data}{$host}{$sequence}} )
+                        {
+                        print "Sequence is '$sequence' Attribute is '$attribute' value is '${$data}{$host}{$sequence}{$attribute}'\n";
+                        }
+                }
 
+        }
+
+return 1;
 }
 

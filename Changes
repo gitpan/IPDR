@@ -4,8 +4,38 @@ Please see the examples directory on how to use the module.
 
 IP ownership has now been resolved. This code is released under
 artistic_2 license and any changes made,bugs found, general information
+
+
 additions should be presented back to the author.
 
+0.19	02/09/2009
+	Added attributes to document level which are
+
+	xmlns
+	count
+	version
+	creationTime
+	xsi:schemaLocation
+	IPDRRecorderInfo
+	xmlns:xsi
+	endTime
+	docId
+
+	Added
+
+	IPDRcreationTime
+	RecType
+
+	The version 3.5 template being used.
+
+	Changed the 'DataHandler' function to also return a pointer to
+	the module object to provide hooks to internal functions.
+
+0.18	28/08/2009
+	Added document to the sequences returned
+0.17	26/08/2009
+	Another bug in the Cisco module (you probably do not believe I 
+	tested this extensively)
 0.16	24/08/2009
 	Bug in the Cisco module causing the DOCSIS parser to fail
 	Thanks to Rui Dias for providing debug and comms to track it down

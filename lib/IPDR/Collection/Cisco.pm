@@ -14,11 +14,11 @@ IPDR::Collection::Cisco - IPDR Collection Client (Cisco Specification)
 
 =head1 VERSION
 
-Version 0.16
+Version 0.19
 
 =cut
 
-our $VERSION = '0.16';
+our $VERSION = '0.19';
 
 =head1 SYNOPSIS
 
@@ -93,16 +93,28 @@ use the different module for Cisco, all others use Client.
     my ( $remote_ip ) = shift;
     my ( $remote_port ) = shift;
     my ( $data ) = shift;
+    my ( $self ) = shift;
 
-    foreach my $sequence ( sort { $a<=> $b } keys %{$data} )
+    foreach my $host ( sort { $a<=> $b } keys %{$data} )
         {
-        print "Sequence  is '$sequence'\n";
-        foreach my $attribute ( keys %{${$data}{$sequence}} )
+        print "Host  is '$host' \n";
+        foreach my $document_attribute ( keys %{${$data}{$host}{'document'}} )
                 {
-                print "Sequence '$sequence' attribute '$attribute'";
-		print " value '${$data}{$sequence}{$attribute}'\n";
+                print "Document id '$document_attribute' ";
+                print "value is '${$data}{$host}{'document'}{$document_attribute}'\n";
+                }
+
+        foreach my $sequence ( keys %{${$data}{$host}} )
+                {
+                next if $sequence=~/^document$/i;
+                foreach my $attribute ( keys %{${$data}{$host}{$sequence}} )
+                        {
+                        print "Sequence is '$sequence' Attribute is '$attribute' ";
+                        print "value is '${$data}{$host}{$sequence}{$attribute}'\n";
+                        }
                 }
         }
+    return 1;
     }
 
 This is the most basic way to access the data. There are multiple scripts in
@@ -233,7 +245,7 @@ sub new {
 sub get_data_segment
 {
 my ( $self ) = shift;
-my ( $dataset ) ;
+my ( $dataset ) = "";
 
 my ( $handles ) = $self->{_GLOBAL}{'handles'};
 my ( $current_handles ) = $self->{_GLOBAL}{'ready_handles'};
@@ -248,14 +260,17 @@ foreach my $handle ( @{$current_handles} )
 		}
 		else
 		{
-		my $link = sysread($handle,$dataset,1024);
+		my $link = 0;
+		$link = sysread($handle,$dataset,1024);
 		if ( $link == 0 )
 			{
 			if ( $self->{_GLOBAL}{'XMLDirectory'} )
 				{
+				if ( !${$handles}{$handle} )
+					{} else {
 				open (__FILE,">".$self->{_GLOBAL}{'XMLDirectory'}."/".$handle->peerhost());
 				print __FILE ${$handles}{$handle};
-				close __FILE;
+				close __FILE; }
 				}
 			my $child;
 			if ($child=fork)
@@ -265,15 +280,17 @@ foreach my $handle ( @{$current_handles} )
 					#setsid;
 					foreach my $handler ( keys %{$handles} )
 						{ if ( $handler ne $handle ) { delete ${$handles}{$handler}; } }
+					if ( !${$handles}{$handle} ) { waitpid($child,0); exit(0); }
 					if ( $self->{_GLOBAL}{'Type'}=~/^docsis/ig )
 						{
 						my %result = $self->_process_docsis($handle->peerhost(),${$handles}{$handle});
-						if ( $self->{_GLOBAL}{'complete_decoded_data'}{$handle->peerhost()} )
+						if ( scalar(keys %result)>0 )
 							{
 							$self->{_GLOBAL}{'DataHandler'}->(
 								$handle->peerhost(),
 								$handle->peerport(),
-								\%result
+								\%result,
+								$self
 								);
 							}
 						}
@@ -377,11 +394,10 @@ sub _process_docsis
 my ( $self ) = shift;
 my ( $host_ip ) = shift;
 my ( $raw_data ) = shift;
-my ( $exported_data ) = $self->{_GLOBAL}{'complete_decoded_data'};
 
 my ( %result, $direction );
 if ( $raw_data!~/ipdrdoc/ig )
-        { return \%result; }
+        { return %result; }
 
 # now we should really use a XML parser
 # two problems
@@ -392,9 +408,22 @@ if ( $raw_data!~/ipdrdoc/ig )
 my ( $header,$body,$footer ) = (split(/<IPDRDoc/,$raw_data))[0,1,2];
 my ( @body_parts ) = split(/\<IPDR\s/,$body);
 
+my @footer_params = qw [ count endTime ];
+foreach my $footerp ( @footer_params )
+	{
+	my ( $value ) = (split(/\"/,(split(/$footerp=\"/,$footer))[1]))[0];
+	$result{$host_ip}{'document'}{$footerp}=$value;
+	}
+
 $header=$body_parts[0];
-my ( $version ) = (split(/\">/,(split(/version=\"/,$header))[1]))[0];
-$version=substr($version,0,3);
+
+my @header_params = qw [ docId creationTime IPDRRecorderInfo version xmlns xmlns:xsi xsi:schemaLocation ];
+foreach my $headerp ( @header_params )
+	{
+	my ( $value ) = (split(/\"/,(split(/$headerp=\"/,$header))[1]))[0];
+	$result{$host_ip}{'document'}{$headerp}=$value;
+	}
+my $version=substr($result{$host_ip}{'document'}{'version'},0,3);
 
 my ( @direction_name )= qw [ blank Downstream Upstream ];
 
@@ -444,7 +473,7 @@ foreach my $entry ( @body_parts )
 		next unless $inner_keys{ ${$template_data}{$version}{$attribute} };
 		$result{$host_ip}{$entry_count}{$test} = $inner_keys{ ${$template_data}{$version}{$attribute} };
 		}
-		
+
 #        foreach my $attribute ( keys %{${$template_data}{$version}} )
 #                {
 #                my ( $parent, $test ) = (split(/-/,$attribute))[0,1];
@@ -513,6 +542,8 @@ my ( %templates ) =
 		'Upstream-serviceSlaDropPkts' => 'serviceSlaDropPkts',
 		'Downstream-serviceSlaDropPkts' => 'serviceSlaDropPkts',
 		'all-CMTShostName' => 'CMTShostName',
+		'all-IPDRcreationTime' => 'IPDRcreationTime',
+		'all-RecType' => 'RecType',
 		'all-CMdocsisMode' => 'CMdocsisMode',
 		'all-CMTSdownIfName' => 'CMTSdownIfName',
 		'all-CMTSupIfName' => 'CMTSupIfName',

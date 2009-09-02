@@ -37,6 +37,7 @@ sub display_data
 my ( $remote_ip ) = shift;
 my ( $remote_port ) = shift;
 my ( $data ) = shift;
+my ( $self ) = shift;
 
 foreach my $sequence ( sort { $a<=>$b } keys %{$data} )
 	{

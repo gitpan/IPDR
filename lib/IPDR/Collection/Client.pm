@@ -13,11 +13,11 @@ IPDR::Collection::Client - IPDR Collection Client
 
 =head1 VERSION
 
-Version 0.16
+Version 0.19
 
 =cut
 
-our $VERSION = '0.16';
+our $VERSION = '0.19';
 
 =head1 SYNOPSIS
 
@@ -95,6 +95,7 @@ use the different module for Cisco, all others use Client.
     my ( $remote_ip ) = shift;
     my ( $remote_port ) = shift;
     my ( $data ) = shift;
+    my ( $self ) = shift;
 
     foreach my $sequence ( sort { $a<=>$b } keys %{$data} )
         {
@@ -563,7 +564,8 @@ if ( $self->get_internal_value('data_ack') )
 		$self->{_GLOBAL}{'DataHandler'}->(
 			$self->{_GLOBAL}{'ServerIP'},
 			$self->{_GLOBAL}{'ServerPort'},
-			$self->{_GLOBAL}{'complete_decoded_data'}
+			$self->{_GLOBAL}{'complete_decoded_data'},
+			$self
 			);
 		waitpid($child,0);
 		exit(0);
