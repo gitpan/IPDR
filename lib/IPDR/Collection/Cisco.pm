@@ -5,6 +5,7 @@ use strict;
 use IO::Select;
 use IO::Socket;
 use POSIX;
+use Time::HiRes qw( usleep ualarm gettimeofday tv_interval clock_gettime clock_getres );
 
 $SIG{CHLD}="IGNORE";
 
@@ -14,11 +15,11 @@ IPDR::Collection::Cisco - IPDR Collection Client (Cisco Specification)
 
 =head1 VERSION
 
-Version 0.19
+Version 0.20
 
 =cut
 
-our $VERSION = '0.19';
+our $VERSION = '0.20';
 
 =head1 SYNOPSIS
 
@@ -152,6 +153,29 @@ can be passed the following varaibles
                 of the XML to the directory specific, filename being the IP
                 address of the sending router.
 
+    RemoteAddr
+	
+         IP address of remote server to send on data to
+
+    RemotePort
+
+         Port of remote server to send on data to
+
+    RemoteTimeOut
+
+         Timeout for connection
+
+    RemoteSpeed
+
+         Speed at which to send data. It is a number in Mbps, the
+         default is 10. You can use decimal such as 0.5 to mean 500kbps.
+
+
+    Force32BitMode
+
+         This turns OFF all 64bit checks. Useful for running with older
+         routers such as Cisco7200 UBRs.
+        
     KeepAlive - This defaults to 60, but can be set to any value.
     Capabilities - This defaults to 0x01 and should not be set to much else.
     TimeOut - This defaults to 5 and is passed to IO::Socket (usefulness ?!)
@@ -230,6 +254,24 @@ sub new {
         if ( !$self->{_GLOBAL}{'Type'} )
                 { $self->{_GLOBAL}{'Type'}=0; }
 
+	if ( !$self->{_GLOBAL}{'RemoteIP'} )
+		{ $self->{_GLOBAL}{'RemoteIP'}=""; }
+
+	if ( !$self->{_GLOBAL}{'RemotePort'} )
+		{ $self->{_GLOBAL}{'RemotePort'}=""; }
+
+	if ( !$self->{_GLOBAL}{'RemotePassword'} )
+		{ $self->{_GLOBAL}{'RemotePassword'}=""; }
+
+	if ( !$self->{_GLOBAL}{'RemoteTimeOut'} )
+		{ $self->{_GLOBAL}{'RemoteTimeOut'}=120; }
+
+	if ( !$self->{_GLOBAL}{'RemoteSpeed'} )
+		{ $self->{_GLOBAL}{'RemoteSpeed'}=10; }
+
+	if ( !$self->{_GLOBAL}{'Force32BitMode'} )
+		{ $self->{_GLOBAL}{'Force32BitMode'}=0; }
+
         if ( !$self->{_GLOBAL}{'XMLDirectory'} )
                 { $self->{_GLOBAL}{'XMLDirectory'}=0; }
 
@@ -252,6 +294,7 @@ my ( $current_handles ) = $self->{_GLOBAL}{'ready_handles'};
 
 foreach my $handle ( @{$current_handles} )
         {
+#	print "Handle is '$handle'\n";
 	if ( $handle==$self->{_GLOBAL}{'Handle'} )
 		{
 		my $new = $self->{_GLOBAL}{'Handle'}->accept;
@@ -262,58 +305,73 @@ foreach my $handle ( @{$current_handles} )
 		{
 		my $link = 0;
 		$link = sysread($handle,$dataset,1024);
-		if ( $link == 0 )
+		if ( !$link )
 			{
-			if ( $self->{_GLOBAL}{'XMLDirectory'} )
-				{
-				if ( !${$handles}{$handle} )
-					{} else {
-				open (__FILE,">".$self->{_GLOBAL}{'XMLDirectory'}."/".$handle->peerhost());
-				print __FILE ${$handles}{$handle};
-				close __FILE; }
-				}
 			my $child;
 			if ($child=fork)
 				{ } elsif (defined $child)
+				{
+				
+				#print "rmote address is '".${$handles}{$handle}{'addr'}."'\n";
+				#print "rmote port is '".${$handles}{$handle}{'port'}."'\n";
+				if ( $self->{_GLOBAL}{'XMLDirectory'} )
 					{
-					#$SIG{CHLD}="IGNORE";
-					#setsid;
-					foreach my $handler ( keys %{$handles} )
-						{ if ( $handler ne $handle ) { delete ${$handles}{$handler}; } }
-					if ( !${$handles}{$handle} ) { waitpid($child,0); exit(0); }
-					if ( $self->{_GLOBAL}{'Type'}=~/^docsis/ig )
+					if ( !${$handles}{$handle}{'data'} )
+					{} else {
+					if ( open (__FILE,">".$self->{_GLOBAL}{'XMLDirectory'}."/".${$handles}{$handle}{'addr'}) )
 						{
-						my %result = $self->_process_docsis($handle->peerhost(),${$handles}{$handle});
-						if ( scalar(keys %result)>0 )
-							{
-							$self->{_GLOBAL}{'DataHandler'}->(
-								$handle->peerhost(),
-								$handle->peerport(),
-								\%result,
-								$self
-								);
-							}
+						print __FILE ${$handles}{$handle}{'data'};
+						close __FILE; 
 						}
-						else
+						}
+					}
+				#$SIG{CHLD}="IGNORE";
+				#setsid;
+				foreach my $handler ( keys %{$handles} )
+					{ if ( $handler ne $handle ) { delete ${$handles}{$handler}; } }
+				if ( !${$handles}{$handle} ) { waitpid($child,0); exit(0); }
+				if ( $self->{_GLOBAL}{'Type'}=~/^docsis/ig )
+					{
+					my %result = $self->_process_docsis(${$handles}{$handle}{'addr'},${$handles}{$handle}{'data'});
+					if ( scalar(keys %result)>0 )
 						{
 						$self->{_GLOBAL}{'DataHandler'}->(
-							$handle->peerhost(),
-							$handle->peerport(),
-							${$handles}{$handle} );
+						${$handles}{$handle}{'addr'},
+						${$handles}{$handle}{'port'},
+						\%result,
+						$self
+						);
 						}
-					waitpid($child,0);
-					exit(0);
 					}
-			if ( $self->{_GLOBAL}{'complete_decoded_data'}{ $handle->peerhost() } )
-				{ undef $self->{_GLOBAL}{'complete_decoded_data'}{ $handle->peerhost() }; }
+					else
+					{
+					$self->{_GLOBAL}{'DataHandler'}->(
+						${$handles}{$handle}{'addr'},
+						${$handles}{$handle}{'port'},
+						${$handles}{$handle}{'data'}
+						);
+					}
+				# remote sending needs to go here.
+				if ( $self->{_GLOBAL}{'RemoteIP'} && $self->{_GLOBAL}{'RemotePort'} )
+					{
+					$self->_send_to_clear_destination(${$handles}{$handle}{'data'});
+					}
+				waitpid($child,0);
+				exit(0);
+				}
+			if ( $self->{_GLOBAL}{'complete_decoded_data'}{ ${$handles}{$handle}{'addr'} } )
+				{ undef $self->{_GLOBAL}{'complete_decoded_data'}{ ${$handles}{$handle}{'addr'} }; }
 			delete ${$handles}{$handle};
 			$self->{_GLOBAL}{'Selector'}->remove($handle);
 			$handle->close();
 			}
-		if ( $link > 0 )
-			{
-			${$handles}{$handle}.=$dataset;
-			}
+	
+			if ( $link )
+				{
+				${$handles}{$handle}{'data'}.=$dataset;
+				${$handles}{$handle}{'addr'}=$handle->peerhost() if !${$handles}{$handle}{'addr'};
+				${$handles}{$handle}{'port'}=$handle->peerport() if !${$handles}{$handle}{'port'};
+				}
 		}
 	}
 return 1;
@@ -334,6 +392,13 @@ return $self->{_GLOBAL}{'STATUS'};
 sub connect
 {
 my ( $self ) = shift;
+
+if ( !$self->test_64_bit() && $self->{_GLOBAL}{'Force32BitMode'}==0 )
+        {
+        # if you forgot to run make test, this will clobber
+        # your run anyway.
+	die '64Bit support not available must stop.';
+	}
 
 my $lsn = IO::Socket::INET->new
                         (
@@ -494,6 +559,83 @@ foreach my $entry ( @body_parts )
 return %result;
 }
 
+sub _send_to_clear_destination
+{
+my ( $self ) = shift;
+my ( $data ) = shift;
+my ( $length_sent ) = 0;
+my ( $send_size ) = 1000;
+
+#print "Sending data is \n\n$data\n\n";
+
+my $lsr = IO::Socket::INET->new
+		(
+		PeerAddr => $self->{_GLOBAL}{'RemoteIP'},
+		PeerPort => $self->{_GLOBAL}{'RemotePort'},
+		ReuseAddr => 1,
+		Proto     => 'tcp',
+		Timeout    => $self->{_GLOBAL}{'RemoteTimeOut'}
+		);
+$lsr->autoflush(0);
+if (!$lsr)
+	{
+	return 0;
+	}
+
+#print "Sending to remote at '".$self->{_GLOBAL}{'RemoteIP'}."' port '".$self->{_GLOBAL}{'RemotePort'}."'\n";
+
+#my $selectr = $self->{_GLOBAL}{'Handle'} = $lsn;
+my $selector = new IO::Select( $lsr );
+#$self->{_GLOBAL}{'STATUS'}="Success Connected";
+
+my $timer = (1/($self->{_GLOBAL}{'RemoteSpeed'}/8) )*$send_size; 
+
+#print "Timer set to '$timer' useconds\n";
+
+my $chunk;
+my $print_status = 1; 
+while ( length($data)>0 && (my @ready = $selector->can_write ) )
+	{
+	foreach my $write ( @ready )
+		{
+		if ( $write == $lsr )
+			{
+			#print "handle is '$write'\n";
+			if ( length($data)<=$send_size)
+				{
+				#print "ASending '$data'\n\n\n";
+				$print_status = print $write $data;
+				$data = "";
+				}
+				else
+				{
+				$chunk = substr($data,0,$send_size);
+				$print_status = print $write $chunk;
+				#print "BSending '$chunk'\n\n\n";
+				$data = substr($data,$send_size,length($data)-$send_size);
+				}
+			}
+		}
+	# there is something seriously broke here. For some reason TCP, on my system,
+	# is not buffering as it should. Of course more than likely my code which
+	# is broken, but tracking it down is proving a little difficult.
+	# this is set to approximately 80Mbits/second transfer rate, so do make
+	# sure you have at least a 100mbps interface connected
+
+
+	usleep($timer);
+	#print "Ending pass for send.\n";
+	}
+
+$lsr->close();
+
+#print "Closed connection to '".$self->{_GLOBAL}{'RemoteIP'}."' port '".$self->{_GLOBAL}{'RemotePort'}."'\n";
+
+if ( $self->{_GLOBAL}{'RemoteHandle'} ) { $self->{_GLOBAL}{'RemoteHandle'}->close(); }
+
+return 1;
+}
+
 sub return_template_data
 {
 
@@ -553,6 +695,29 @@ my ( %templates ) =
 	);
 
 return \%templates;
+}
+
+sub test_64_bit
+{
+my $self = shift;
+my $tester=576466952313524498;
+my $origin = $tester;
+#print "Tester is '$tester'\n";
+my($test1) = $tester & 0xFFFFFFFF; $tester >>= 32;
+my($test2) = $tester & 0xFFFFFFFF;
+my $message = pack("NN",$test2,$test1);
+my ($part1,$part2) = unpack("NN",$message);
+$part1 = $part1<<32;
+#$part1 & 0xFFFFFFFF;
+$part1+=$part2;
+if ( $origin!=$part1 )
+        {
+	return 0;
+	}
+	else
+	{
+	return 1;
+	}
 }
 
 =head1 AUTHOR

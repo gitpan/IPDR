@@ -6,11 +6,11 @@ IPDR - IPDR Data Suite
 
 =head1 VERSION
 
-Version 0.19
+Version 0.20
 
 =cut
 
-our $VERSION = '0.19';
+our $VERSION = '0.20';
 
 =head1 SYNOPSIS
 
@@ -20,6 +20,10 @@ servers.
 To use the Cisco implementation of IPDR (SAMIS) see the man page
 
 IPDR::Collection::Cisco
+
+To use the Cisco Secure implementation of IPDR (SAMIS) see the man page
+
+IPDR::Collection::CiscoSSL
 
 To use the generic client implementation of IPDR see the man page
 

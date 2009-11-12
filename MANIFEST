@@ -5,7 +5,11 @@ Makefile.PL
 README
 lib/IPDR.pm
 lib/IPDR/Collection/Client.pm
+lib/IPDR/Collection/CiscoSSL.pm
 lib/IPDR/Collection/Cisco.pm
+examples/pubhostcert.pem
+examples/pubhostkey.pem
 examples/new_motorola_collect_tcp.pl
 examples/new_cisco_collect_tcp.pl
+examples/new_cisco_collect_tcp_ssl.pl
 t/64bitTest.t
