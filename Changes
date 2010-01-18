@@ -8,6 +8,78 @@ artistic_2 license and any changes made,bugs found, general information
 
 additions should be presented back to the author.
 
+0.25    17/01/2010
+	SessionID finally fixed ( case sensitive typo ).
+	Change network write and reads to include timeouts
+	Added variables
+
+	AckTimeOverride
+	AckSequenceOverride
+
+	Allows you to set the AckTimer and AckSequence numbers should
+	you wish to.
+ 
+	Added a new example which allows the IPDR client to reconnect
+ 	if the network or tcp connection timeouts/fails. 
+
+0.24    15/01/2010
+	SessionID again and also session specific Ack and Sequence
+        handling
+0.23.04 13/01/2010
+	SessionID again
+0.23.03	12/01/2010
+	SessionID again
+0.23.02 10/01/2010
+	SessionID again previously coded to spec, now coded to an implementation
+	lets see how it goes ( tears will ensue I suspect )
+
+0.23.01	9/01/2010
+	SessionID was not fixed correctly should be now
+	MaxRecords appeared to be doing something odd. Removed the data
+	ack sending as not required and added a purge of the data set
+	from memory.
+
+0.23	8/01/2010
+	Beta version for fixing and implementation several features
+
+	AckTime  - Implementation where data flows longer than a Timeout
+	period and requires ACK during receiving.
+	SessionID - Set properly rather than to 0. This is quite important
+	and appears one or two vendor implementations like it to be correct.
+	MaxRecords - Will send a data ack and call the external function
+	after each amount of data records received.
+
+0.22	15/12/2009
+	Added XML writing and relating to the Client.pm using the
+	XMLDirectory attribute
+
+0.21	20/11/2009
+	Added
+
+	RemoteMulti tag to send to multiple destinations
+
+	Example would be
+
+	RemoteMulti => '10.1.1.1:9000:10,20.1.1.1:9000:10'
+
+	This will send to multiple destinations at the same time for the
+	same data. This is effectively a unicast repeater.
+
+	Added
+
+	RemoteSecure
+
+	This is a simple 0 or 1 flag, default is 0. If set the 
+	destination should be ready to accept a SSL connection as the 
+	client tries to setup a SSL call. SSLKeyFile and SSLHostFile
+	must be present otherwise the client setup will fail.
+
+	Added the Client.pm module to convert XDR into XML and also
+	relay this remotely.
+
+	PDF started with examples on how to use the module and collect
+	data. 
+
 0.20	11/11/2009
 	Fixed the really bad TCP handler, not sure how or why i did the
 	previous way but should now work correctly.

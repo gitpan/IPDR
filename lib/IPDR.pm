@@ -6,11 +6,11 @@ IPDR - IPDR Data Suite
 
 =head1 VERSION
 
-Version 0.20
+Version 0.25
 
 =cut
 
-our $VERSION = '0.20';
+our $VERSION = '0.25';
 
 =head1 SYNOPSIS
 
@@ -29,8 +29,8 @@ To use the generic client implementation of IPDR see the man page
 
 IPDR::Collection::Client
 
-The generic client has been tested with Motorola and Aris (although very limited
-testing with Aris).
+The generic client has been tested with Motorola and Arris (although very limited
+testing with Arris).
 
 =cut
 

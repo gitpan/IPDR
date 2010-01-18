@@ -6,29 +6,31 @@ use IPDR::Collection::Client;
 my $ipdr_client = new IPDR::Collection::Client (
 			[
 			VendorID => 'IPDR Client',
-			ServerIP => '192.168.1.1',
-			ServerPort => '5000',
+			ServerIP => '80.194.79.221',
+			ServerPort => '6000',
 			KeepAlive => 60,
 			Capabilities => 0x01,
 			DataHandler => \&display_data,
+			DEBUG => 5,
 			Timeout => 2,
 			]
 			);
 
+while (1)
+	{
+
 # We send a connect message to the IPDR server
-$ipdr_client->connect();
+# if we connect start talking IPDR.
+if ( $ipdr_client->connect() )
+	{
+	$ipdr_client->check_data_available();
+	}
 
-# If we do not connect stop.
-if ( !$ipdr_client->connected )
-        {
-        print "Can not connect to destination.\n";
-        exit(0);
-        }
+# If we get here, wait an amount of time, say 10 seconds
 
-# We now send a connect message 
-$ipdr_client->check_data_available();
+sleep(10);
 
-print "Error was '".$ipdr_client->get_error()."'\n";
+	}
 
 exit(0);
 

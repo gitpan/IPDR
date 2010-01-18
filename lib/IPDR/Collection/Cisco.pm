@@ -4,6 +4,7 @@ use warnings;
 use strict;
 use IO::Select;
 use IO::Socket;
+use IO::Socket::SSL;
 use POSIX;
 use Time::HiRes qw( usleep ualarm gettimeofday tv_interval clock_gettime clock_getres );
 
@@ -15,11 +16,11 @@ IPDR::Collection::Cisco - IPDR Collection Client (Cisco Specification)
 
 =head1 VERSION
 
-Version 0.20
+Version 0.25
 
 =cut
 
-our $VERSION = '0.20';
+our $VERSION = '0.25';
 
 =head1 SYNOPSIS
 
@@ -170,6 +171,19 @@ can be passed the following varaibles
          Speed at which to send data. It is a number in Mbps, the
          default is 10. You can use decimal such as 0.5 to mean 500kbps.
 
+    RemoteMulti
+
+         This paramter allows multiple destinations to receive XML. The
+         list is a comma separate list of remote end points and their
+         parameters. An example would be
+
+         10.1.1.1:9000:10,20.1.1.1:9000:50
+
+         The parameters are as follows
+
+         Destination IP:Destination Port:Destination Bandwidth
+
+         You can omit destination bandwidth and it will default to 10
 
     Force32BitMode
 
@@ -294,7 +308,7 @@ my ( $current_handles ) = $self->{_GLOBAL}{'ready_handles'};
 
 foreach my $handle ( @{$current_handles} )
         {
-#	print "Handle is '$handle'\n";
+	print "Handle is '$handle'\n" if $self->{_GLOBAL}{'DEBUG'}>5;
 	if ( $handle==$self->{_GLOBAL}{'Handle'} )
 		{
 		my $new = $self->{_GLOBAL}{'Handle'}->accept;
@@ -304,16 +318,18 @@ foreach my $handle ( @{$current_handles} )
 		else
 		{
 		my $link = 0;
+		$dataset="";
 		$link = sysread($handle,$dataset,1024);
 		if ( !$link )
 			{
 			my $child;
+			${$handles}{$handle}{'data'}.=$dataset;
 			if ($child=fork)
 				{ } elsif (defined $child)
 				{
 				
-				#print "rmote address is '".${$handles}{$handle}{'addr'}."'\n";
-				#print "rmote port is '".${$handles}{$handle}{'port'}."'\n";
+				print "rmote address is '".${$handles}{$handle}{'addr'}."'\n" if $self->{_GLOBAL}{'DEBUG'}>5;
+				print "rmote port is '".${$handles}{$handle}{'port'}."'\n" if $self->{_GLOBAL}{'DEBUG'}>5;
 				if ( $self->{_GLOBAL}{'XMLDirectory'} )
 					{
 					if ( !${$handles}{$handle}{'data'} )
@@ -359,8 +375,11 @@ foreach my $handle ( @{$current_handles} )
 				waitpid($child,0);
 				exit(0);
 				}
-			if ( $self->{_GLOBAL}{'complete_decoded_data'}{ ${$handles}{$handle}{'addr'} } )
-				{ undef $self->{_GLOBAL}{'complete_decoded_data'}{ ${$handles}{$handle}{'addr'} }; }
+			if ( ${$handles}{$handle}{'addr'} )
+				{
+				if ( $self->{_GLOBAL}{'complete_decoded_data'}{ ${$handles}{$handle}{'addr'} } )
+					{ undef $self->{_GLOBAL}{'complete_decoded_data'}{ ${$handles}{$handle}{'addr'} }; }
+				}
 			delete ${$handles}{$handle};
 			$self->{_GLOBAL}{'Selector'}->remove($handle);
 			$handle->close();
@@ -488,7 +507,9 @@ foreach my $headerp ( @header_params )
 	my ( $value ) = (split(/\"/,(split(/$headerp=\"/,$header))[1]))[0];
 	$result{$host_ip}{'document'}{$headerp}=$value;
 	}
-my $version=substr($result{$host_ip}{'document'}{'version'},0,3);
+#my $version=substr($result{$host_ip}{'document'}{'version'},0,3);
+
+my $version=$result{$host_ip}{'document'}{'version'}; $version = (split(/-/,$version))[0];
 
 my ( @direction_name )= qw [ blank Downstream Upstream ];
 
@@ -497,6 +518,8 @@ my ( @direction_name )= qw [ blank Downstream Upstream ];
 # There are no checks at present if a different version is sent to us.
 my ( $template_data ) = return_template_data();
 my ( $entry_count ) = 0;
+
+if ( !${$template_data}{$version} ) { return %result; };
 
 foreach my $entry ( @body_parts )
         {
@@ -528,6 +551,12 @@ foreach my $entry ( @body_parts )
                 next if scalar(keys %inner_keys)<22;
                 $direction = $direction_name[$inner_keys{'serviceDirection'}];
                 }
+
+        if ( $version=~/^99.99/ )
+                {
+                $direction = $direction_name[$inner_keys{'serviceDirection'}];
+                }
+
 	next unless $direction;
 
         my $subscriber = $inner_keys{ ${$template_data}{$version}{'all-CMmacAddress'} };
@@ -566,72 +595,168 @@ my ( $data ) = shift;
 my ( $length_sent ) = 0;
 my ( $send_size ) = 1000;
 
+#RemoteSecure
+#RemoteMulti
 #print "Sending data is \n\n$data\n\n";
 
-my $lsr = IO::Socket::INET->new
-		(
-		PeerAddr => $self->{_GLOBAL}{'RemoteIP'},
-		PeerPort => $self->{_GLOBAL}{'RemotePort'},
-		ReuseAddr => 1,
-		Proto     => 'tcp',
-		Timeout    => $self->{_GLOBAL}{'RemoteTimeOut'}
-		);
-$lsr->autoflush(0);
-if (!$lsr)
-	{
-	return 0;
-	}
-
-#print "Sending to remote at '".$self->{_GLOBAL}{'RemoteIP'}."' port '".$self->{_GLOBAL}{'RemotePort'}."'\n";
-
-#my $selectr = $self->{_GLOBAL}{'Handle'} = $lsn;
-my $selector = new IO::Select( $lsr );
-#$self->{_GLOBAL}{'STATUS'}="Success Connected";
-
-my $timer = (1/($self->{_GLOBAL}{'RemoteSpeed'}/8) )*$send_size; 
-
-#print "Timer set to '$timer' useconds\n";
-
-my $chunk;
-my $print_status = 1; 
-while ( length($data)>0 && (my @ready = $selector->can_write ) )
-	{
-	foreach my $write ( @ready )
-		{
-		if ( $write == $lsr )
-			{
-			#print "handle is '$write'\n";
-			if ( length($data)<=$send_size)
-				{
-				#print "ASending '$data'\n\n\n";
-				$print_status = print $write $data;
-				$data = "";
-				}
-				else
-				{
-				$chunk = substr($data,0,$send_size);
-				$print_status = print $write $chunk;
-				#print "BSending '$chunk'\n\n\n";
-				$data = substr($data,$send_size,length($data)-$send_size);
-				}
-			}
-		}
-	# there is something seriously broke here. For some reason TCP, on my system,
-	# is not buffering as it should. Of course more than likely my code which
-	# is broken, but tracking it down is proving a little difficult.
-	# this is set to approximately 80Mbits/second transfer rate, so do make
-	# sure you have at least a 100mbps interface connected
-
-
-	usleep($timer);
-	#print "Ending pass for send.\n";
-	}
-
-$lsr->close();
-
-#print "Closed connection to '".$self->{_GLOBAL}{'RemoteIP'}."' port '".$self->{_GLOBAL}{'RemotePort'}."'\n";
-
-if ( $self->{_GLOBAL}{'RemoteHandle'} ) { $self->{_GLOBAL}{'RemoteHandle'}->close(); }
+if ( $self->{_GLOBAL}{'RemoteMulti'} )
+        {
+        # Multi remote needs to fork out the sending so it can
+        # do all the destinations at once otherwise it *may*
+        # take a while to get through any number of
+        # destinations set.
+        #
+        # Multiple destination is set to the follow
+        #
+        # Destination IP:Destination Port:Destination Speed,
+        #
+        # if using secure then you need to make sure the
+        # keys are the same for each destination host.
+        #
+        my $child;
+        foreach my $destination ( split(/,/,$self->{_GLOBAL}{'RemoteMulti'}) )
+                {
+                if ($child=fork)
+                        { } elsif (defined $child)
+                                {
+                                my ( $remoteip, $remoteport, $remotespeed ) = (split(/:/,$destination))[0,1,2];
+                                if ( !$remoteip || !$remoteport )
+                                        {
+                                        waitpid($child,0);
+                                        exit(0);
+                                        }
+                                if ( !$remotespeed )
+                                        { $remotespeed=10; }
+                                my $lsr;
+                                if ( $self->{_GLOBAL}{'RemoteSecure'} )
+                                        {
+                                        $lsr = IO::Socket::SSL->new
+                                                (
+                                                PeerAddr => $remoteip,
+                                                PeerPort => $remoteport,
+                                                SSL_key_file => $self->{_GLOBAL}{'SSLKeyFile'},
+                                                ReuseAddr => 1,
+                                                Proto     => 'tcp',
+                                                Timeout    => 5
+                                                        );
+                                        }
+                                        else
+                                        {
+                                        $lsr = IO::Socket::INET->new
+                                                (
+                                                PeerAddr => $remoteip,
+                                                PeerPort => $remoteport,
+                                                ReuseAddr => 1,
+                                                Proto     => 'tcp',
+                                                Timeout    => 5
+                                                        );
+                                        }
+                                if ( !$lsr )
+                                        {
+                                        waitpid($child,0);
+                                        exit(0);
+                                        }
+                                $lsr->autoflush(0);
+                                my $selector = new IO::Select( $lsr );
+                                my $timer = (1/($remotespeed/8) )*$send_size;
+                                my $print_status = 1;
+                                my $chunk;
+                                while ( length($data)>0 && (my @ready = $selector->can_write ) )
+                                        {
+                                        foreach my $write ( @ready )
+                                                {
+                                                if ( $write == $lsr )
+                                                        {
+                                                        #print "handle is '$write'\n";
+                                                        if ( length($data)<=$send_size)
+                                                                {
+                                                                #print "ASending '$data'\n\n\n";
+                                                                $print_status = print $write $data;
+                                                                $data = "";
+                                                                }
+                                                                else
+                                                                {
+                                                                $chunk = substr($data,0,$send_size);
+                                                                $print_status = print $write $chunk;
+                                                                #print "BSending '$chunk'\n\n\n";
+                                                                $data = substr($data,$send_size,length($data)-$send_size);
+                                                                }
+                                                        }
+                                                }
+                                        # Timer added for remotesendspeed. Useful for management networks with limited
+                                        # speed, such as 10mb/s or even t1/e1 speeds of 1.6/2 Mbp/s
+                                        usleep($timer);
+                                        #print "Ending pass for send.\n";
+                                        }
+                                usleep(100000);
+                                $lsr->close();
+                                waitpid($child,0);
+                                exit(0);
+                                }
+                }
+        }
+        else
+        {
+        my $lsr;
+        if ( $self->{_GLOBAL}{'RemoteSecure'} )
+                {
+                $lsr = IO::Socket::SSL->new
+                        (
+                        PeerAddr => $self->{_GLOBAL}{'RemoteIP'},
+                        PeerPort => $self->{_GLOBAL}{'RemotePort'},
+                        SSL_key_file => $self->{_GLOBAL}{'SSLKeyFile'},
+                        ReuseAddr => 1,
+                        Proto     => 'tcp',
+                        Timeout    => 5
+                        );
+                }
+                else
+                {
+                $lsr = IO::Socket::INET->new
+                        (
+                        PeerAddr => $self->{_GLOBAL}{'RemoteIP'},
+                        PeerPort => $self->{_GLOBAL}{'RemotePort'},
+                        ReuseAddr => 1,
+                        Proto     => 'tcp',
+                        Timeout    => 5
+                        );
+                }
+        if (!$lsr)
+                {
+                return 0;
+                }
+        $lsr->autoflush(0);
+        my $selector = new IO::Select( $lsr );
+        my $timer = (1/($self->{_GLOBAL}{'RemoteSpeed'}/8) )*$send_size;
+        my $chunk;
+        my $print_status = 1;
+        while ( length($data)>0 && (my @ready = $selector->can_write ) )
+                {
+                foreach my $write ( @ready )
+                                {
+                                if ( $write == $lsr )
+                                        {
+                                        #print "handle is '$write'\n";
+                                        if ( length($data)<=$send_size)
+                                                {
+                                                #print "ASending '$data'\n\n\n";
+                                                $print_status = print $write $data;
+                                                $data = "";
+                                                }
+                                                else
+                                                {
+                                                $chunk = substr($data,0,$send_size);
+                                                $print_status = print $write $chunk;
+                                                #print "BSending '$chunk'\n\n\n";
+                                                $data = substr($data,$send_size,length($data)-$send_size);
+                                                }
+                                        }
+                                }
+                usleep($timer);
+                }
+        usleep(100000);
+        $lsr->close();
+        }
 
 return 1;
 }
@@ -666,6 +791,33 @@ my ( %templates ) =
 		}
 		,
 	'3.5' =>
+		{
+		'all-CMmacAddress' => 'CMmacAddress',
+		'all-serviceClassName'  => 'serviceClassName',
+		'all-serviceTimeCreated'  => 'serviceTimeCreated',
+		'direction-serviceDirection' => 'serviceDirection',
+		'all-CMcpeIpv4List' => 'CMCPEipAddress',
+		'all-CMipAddress' => 'CMipAddress',
+		'Upstream-servicePktsPassed' => 'servicePktsPassed',
+		'Downstream-servicePktsPassed' => 'servicePktsPassed',
+		'Upstream-serviceOctetsPassed' => 'serviceOctetsPassed',
+		'Downstream-serviceOctetsPassed' => 'serviceOctetsPassed',
+		'Upstream-serviceIdentifier' => 'serviceIdentifier',
+		'Downstream-serviceIdentifier' => 'serviceIdentifier',
+		'Upstream-serviceSlaDelayPkts' => 'serviceSlaDelayPkts',
+		'Downstream-serviceSlaDelayPkts' => 'serviceSlaDelayPkts',
+		'Upstream-serviceSlaDropPkts' => 'serviceSlaDropPkts',
+		'Downstream-serviceSlaDropPkts' => 'serviceSlaDropPkts',
+		'all-CMTShostName' => 'CMTShostName',
+		'all-IPDRcreationTime' => 'IPDRcreationTime',
+		'all-RecType' => 'RecType',
+		'all-CMdocsisMode' => 'CMdocsisMode',
+		'all-CMTSdownIfName' => 'CMTSdownIfName',
+		'all-CMTSupIfName' => 'CMTSupIfName',
+		'all-CMTSipAddress' => 'CMTSipAddress',
+		'all-CMTSsysUpTime' => 'CMTSsysUpTime'
+		},
+	'99.99' =>
 		{
 		'all-CMmacAddress' => 'CMmacAddress',
 		'all-serviceClassName'  => 'serviceClassName',

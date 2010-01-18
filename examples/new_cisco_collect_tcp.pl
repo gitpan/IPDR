@@ -7,7 +7,7 @@ my $ipdr_client = new IPDR::Collection::Cisco (
 			[
 			VendorID => 'IPDR Client',
 			ServerIP => '192.168.1.1',
-			ServerPort => '5000',
+			ServerPort => '7000',
 			Timeout => 2,
 			Type => 'docsis',
 			DataHandler => \&display_data,

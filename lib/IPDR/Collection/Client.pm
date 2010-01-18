@@ -4,7 +4,10 @@ use warnings;
 use strict;
 use IO::Select;
 use IO::Socket;
+use IO::Socket::SSL qw(debug3);
 use Unicode::MapUTF8 qw(to_utf8 from_utf8 utf8_supported_charset);
+use Time::localtime;
+use Time::HiRes qw( usleep ualarm gettimeofday tv_interval clock_gettime clock_getres );
 $SIG{CHLD}="IGNORE";
 
 =head1 NAME
@@ -13,11 +16,11 @@ IPDR::Collection::Client - IPDR Collection Client
 
 =head1 VERSION
 
-Version 0.20
+Version 0.25
 
 =cut
 
-our $VERSION = '0.20';
+our $VERSION = '0.25';
 
 =head1 SYNOPSIS
 
@@ -197,6 +200,7 @@ sub new {
         my ( $class , $attr ) =@_;
 
 	my ( %template );
+	my ( %session );
 	my ( %current_data );
 	my ( %complete_decoded_data );
 	my ( @handles );
@@ -224,27 +228,51 @@ sub new {
 		{ $self->{_GLOBAL}{'Capabilities'} = 0x01; } 
 
 	if ( !$self->{_GLOBAL}{'Timeout'} )
-		{ $self->{_GLOBAL}{'Timeout'}=5; }
+		{ $self->{_GLOBAL}{'Timeout'}=10; }
+
+	if ( !$self->{_GLOBAL}{'MaxRecords'} )
+		{ $self->{_GLOBAL}{'MaxRecords'}=0; }
 
         if ( !$self->{_GLOBAL}{'DataHandler'} )
                 { die "DataHandler Function Must Be Defined"; }
 
-        if ( $self->{_GLOBAL}{'RemoteIP'} )
+        if ( !$self->{_GLOBAL}{'RemoteIP'} )
                 { $self->{_GLOBAL}{'RemoteIP'}=""; }
 
-        if ( $self->{_GLOBAL}{'RemotePort'} )
+        if ( !$self->{_GLOBAL}{'RemotePort'} )
                 { $self->{_GLOBAL}{'RemotePort'}=""; }
 
-        if ( $self->{_GLOBAL}{'RemotePassword'} )
+        if ( !$self->{_GLOBAL}{'RemotePassword'} )
                 { $self->{_GLOBAL}{'RemotePassword'}=""; }
+
+        if ( !$self->{_GLOBAL}{'RemoteSpeed'} )
+                { $self->{_GLOBAL}{'RemoteSpeed'}=10; }
+
+        if ( !$self->{_GLOBAL}{'XMLDirectory'} )
+                { $self->{_GLOBAL}{'XMLDirectory'}=""; }
+
+	if ( !$self->{_GLOBAL}{'AckTimeOverride'} )
+		{ $self->{_GLOBAL}{'AckTimeOverride'}=0; }
+
+	if ( !$self->{_GLOBAL}{'AckSequenceOverride'} )
+		{ $self->{_GLOBAL}{'AckSequenceOverride'}=0; }
 
 	$self->{_GLOBAL}{'data_ack'}=0;
 	$self->{_GLOBAL}{'ERROR'}="" ;
 	$self->{_GLOBAL}{'data_processing'}=0;
 
 	$self->{_GLOBAL}{'template'}= \%template;
+	$self->{_GLOBAL}{'sessioninfo'}= \%session;
 	$self->{_GLOBAL}{'current_data'}= \%current_data;
         $self->{_GLOBAL}{'complete_decoded_data'} = \%complete_decoded_data;
+
+	$self->{_GLOBAL}{'AckTime'}=0;
+	$self->{_GLOBAL}{'AckSequence'}=0;
+	$self->{_GLOBAL}{'data_capture_running'}=0;
+	$self->{_GLOBAL}{'data_capture_running_time'}=0;
+	$self->{_GLOBAL}{'data_capture_data_count'}=0;
+	$self->{_GLOBAL}{'data_capture_keep_alive'}=0;
+	$self->{_GLOBAL}{'Session'}=0;
 
         return $self;
 }
@@ -288,10 +316,23 @@ sub generate_ipdr_message_header
 my ( $self ) = shift;
 my ( $version ) = shift;
 my ( $message_id ) = shift;
-my ( $session_id ) = shift;
 my ( $length ) = shift;
 # now we assume the length given is that of the payload
 # we return the header, with the new length in the header.
+
+my ( $session_id );
+
+if ( $self->{_GLOBAL}{'Session'}>0 )
+	{
+	print "IPDR Header session is greater than 0 of '".$self->{_GLOBAL}{'Session'}."'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
+	$session_id = $self->{_GLOBAL}{'Session'};
+	}
+	else
+	{
+	$session_id=0;
+	}
+
+print "IPDR Header session id is '".$session_id."'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
 
 $message_id = _transpose_message_names($message_id);
 
@@ -435,6 +476,34 @@ if ( ${$decode_data}{'Type'}=~/^session_start$/i )
 	${$decode_data}{'AckTime'} = $ack_time;
 	${$decode_data}{'AckSequence'} = $ack_sequence;
 	${$decode_data}{'DocumentID'} = $document_id;
+
+	# added timer for acktime
+	# Added some timer margin so AckTime should not fail
+	my ( $margin_time ) = $ack_time*0.05;
+	if ( $margin_time>15 ) { $margin_time=15; }
+	$ack_time = $ack_time-$margin_time;
+	if ( !$self->{_GLOBAL}{'AckTime'} || $self->{_GLOBAL}{'AckTime'}==0 || $ack_time<$self->{_GLOBAL}{'AckTime'})
+		{
+		$self->{_GLOBAL}{'AckTime'} = $ack_time;
+		print "Ack time is set to '".$self->{_GLOBAL}{'AckTime'}."'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
+		}
+
+	if ( !$self->{_GLOBAL}{'AckSequence'} || $self->{_GLOBAL}{'AckSequence'}==0 || $ack_sequence<$self->{_GLOBAL}{'AckSequence'} )
+		{
+		$self->{_GLOBAL}{'AckSequence'} = $ack_sequence;
+		print "Ack time is set to '".$self->{_GLOBAL}{'AckSequence'}."'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
+		}
+
+	if ( $self->{_GLOBAL}{'AckSequenceOverride'}>0 )
+		{
+		$self->{_GLOBAL}{'AckSequence'} = $self->{_GLOBAL}{'AckSequenceOverride'};
+		}
+	
+	if ( $self->{_GLOBAL}{'AckTimeOverride'} > 0 )
+		{
+		$self->{_GLOBAL}{'AckTime'} = $self->{_GLOBAL}{'AckTimeOverride'};
+		}
+
         if ( $self->{_GLOBAL}{'DEBUG'}>0 )
                 {
                 print "Session start decoded.\n";
@@ -451,14 +520,28 @@ if ( ${$decode_data}{'Type'}=~/^get_sessions_response$/i )
 	{
 	# There is something odd here, the spec says it should be a short
 	# the data returned signifies an int ...
-	my ( $request_id ) = unpack ("N",$message );
+	my ( $request_id ) = unpack ("S",$message );
+	print "Request id is '$request_id'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
 	${$decode_data}{'SESSIONS_RequestID'} = $request_id;
-	${$decode_data}{'SESSIONS_Data'} = substr($message,4,length($message)-4);
+	$self->_extract_session_data( substr($message,2,length($message)-2), $self->{_GLOBAL}{'sessioninfo'} );
+	$self->update_session_parameters();
 	return 1;
 	}
 
 if ( ${$decode_data}{'Type'}=~/^data$/i )
 	{
+	if ( !$self->{_GLOBAL}{'data_capture_running'} )
+		{
+		$self->{_GLOBAL}{'data_capture_running_time'}=time();
+		$self->{_GLOBAL}{'data_capture_running'}=0;
+		}
+	if ( !$self->{_GLBOAL}{'data_capture_keep_alive'} )
+		{
+		$self->{_GLBOAL}{'data_capture_keep_alive'}=time();
+		}
+
+	$self->{_GLOBAL}{'data_capture_running'}++;
+	$self->{_GLOBAL}{'data_capture_data_count'}++;
 	my ( $template_id, $config_id, $flags ) = unpack("SSC",$message);
 	$message = substr($message,5,length($message)-5);
 	my ( $sequence_num ) = decode_64bit_number($message); $message = substr($message,8,length($message)-8);
@@ -468,6 +551,7 @@ if ( ${$decode_data}{'Type'}=~/^data$/i )
 	${$decode_data}{'DATA_Flags'}=$flags;
 	${$decode_data}{'DATA_Sequence'}=$sequence_num;
 	${$decode_data}{'DATA_Data'} = $message;
+	print "Data Epoch is '".time()."'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
 	print "TemplateID is '${$decode_data}{'DATA_TemplateID'}'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
 	print "ConfigID is '${$decode_data}{'DATA_ConfigID'}'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
 	print "Flags is '${$decode_data}{'DATA_Flags'}'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
@@ -539,6 +623,50 @@ my ( $result ) = $self->send_message( $self->construct_flow_stop($code,$reason) 
 return $result;
 }
 
+sub max_records_segment
+{
+my ( $self ) = shift;
+$self->{_GLOBAL}{'data_capture_running'}=0;
+my $child;
+if ($child=fork)
+	{ } elsif (defined $child)
+		{
+		my $xml_transform;
+		#print "Remote IP is '".$self->{_GLOBAL}{'RemoteIP'}."'\n";
+		#print "Remote Port is '".$self->{_GLOBAL}{'RemotePort'}."'\n";
+		if ( ($self->{_GLOBAL}{'RemoteIP'} &&
+			$self->{_GLOBAL}{'RemotePort'}) || length($self->{_GLOBAL}{'XMLDirectory'})>5 )
+			{
+			print "Transformed into XML\n\n$xml_transform\n\n" if $self->{_GLOBAL}{'DEBUG'}>0;
+			$xml_transform = $self->_transform_into_xml($self->{_GLOBAL}{'complete_decoded_data'});
+			}
+		if ( $self->{_GLOBAL}{'RemoteIP'} && $self->{_GLOBAL}{'RemotePort'} )
+			{
+			$self->_send_to_clear_destination ($xml_transform);
+			}
+		if ( length($self->{_GLOBAL}{'XMLDirectory'})>5 )
+			{
+			if ( open (__FILE,">".$self->{_GLOBAL}{'XMLDirectory'}."/".$$self->{_GLOBAL}{'ServerIP'} ) )
+				{
+				print __FILE $xml_transform;
+				close __FILE;
+				}
+			}
+		$self->{_GLOBAL}{'DataHandler'}->(
+			$self->{_GLOBAL}{'ServerIP'},
+			$self->{_GLOBAL}{'ServerPort'},
+			$self->{_GLOBAL}{'complete_decoded_data'},
+			$self
+			);
+		waitpid($child,0);
+		exit(0);
+		}
+$self->{_GLOBAL}{'current_data'}={};
+$self->{_GLOBAL}{'complete_decoded_data'}={};
+return 1;
+}
+
+
 sub send_get_keepalive
 {
 my ( $self ) = shift;
@@ -550,6 +678,10 @@ if ( $self->get_internal_value('data_ack') )
 		$self->get_internal_value('dsn_configID'), 
 		$self->get_internal_value('dsn_sequence') 
 		);
+	# we also need to reset  the capture_count
+	$self->{_GLOBAL}{'data_capture_running'}=0;
+	$self->{_GLOBAL}{'data_capture_running_time'}=0;
+	$self->{_GLOBAL}{'data_capture_data_count'}=0;
 
 	# here we need to add the remote sending of the extracted
 	# data. More than likely a fork is required so not to stall
@@ -561,6 +693,29 @@ if ( $self->get_internal_value('data_ack') )
 	if ($child=fork)
 		{ } elsif (defined $child)
 		{
+		my $xml_transform;
+		#print "Remote IP is '".$self->{_GLOBAL}{'RemoteIP'}."'\n";
+		#print "Remote Port is '".$self->{_GLOBAL}{'RemotePort'}."'\n";
+		if ( ($self->{_GLOBAL}{'RemoteIP'} &&
+				$self->{_GLOBAL}{'RemotePort'}) || length($self->{_GLOBAL}{'XMLDirectory'})>5 )
+			{
+			print "Transformed into XML\n\n$xml_transform\n\n" if $self->{_GLOBAL}{'DEBUG'}>0;
+			$xml_transform = $self->_transform_into_xml($self->{_GLOBAL}{'complete_decoded_data'});
+			}
+		if ( $self->{_GLOBAL}{'RemoteIP'} && $self->{_GLOBAL}{'RemotePort'} )
+			{
+			$self->_send_to_clear_destination ($xml_transform);
+			}
+
+		if ( length($self->{_GLOBAL}{'XMLDirectory'})>5 )
+			{
+			if ( open (__FILE,">".$self->{_GLOBAL}{'XMLDirectory'}."/".$$self->{_GLOBAL}{'ServerIP'} ) )
+				{
+				print __FILE $xml_transform;
+				close __FILE;
+				}
+			}
+
 		$self->{_GLOBAL}{'DataHandler'}->(
 			$self->{_GLOBAL}{'ServerIP'},
 			$self->{_GLOBAL}{'ServerPort'},
@@ -642,7 +797,7 @@ if ( $self->{_GLOBAL}{'DEBUG'}>0 )
 	}
 
 my ( $header ) = $self->generate_ipdr_message_header(
-                        2,"DATA_ACK",0,length($message));
+                        2,"DATA_ACK",length($message));
 $header.=$message;
 return $header;
 }
@@ -652,7 +807,7 @@ sub construct_final_template_data_ack
 {
 my ( $self ) = shift;
 my ( $header ) = $self->generate_ipdr_message_header(
-                        2,"FINAL_TEMPLATE_DATA_ACK",0,0);
+                        2,"FINAL_TEMPLATE_DATA_ACK",0);
 return $header;
 }
 
@@ -663,7 +818,7 @@ my ( $code ) = shift;
 my ( $reason ) = shift;
 my ( $message ) = pack("S",$code); $message.=$reason;
 my ( $header ) = $self->generate_ipdr_message_header(
-                        2,"FLOW_STOP",0,length($message));
+                        2,"FLOW_STOP",length($message));
 $header.=$message;
 return $header;
 }
@@ -672,7 +827,7 @@ sub construct_disconnect
 {
 my ( $self ) = shift;
 my ( $header ) = $self->generate_ipdr_message_header(
-                        2,"DISCONNECT",0,0);
+                        2,"DISCONNECT",0);
 return $header;
 }
 
@@ -680,9 +835,9 @@ return $header;
 sub construct_get_sessions
 {
 my ( $self ) = shift;
-my ( $message ) = pack("S",0);
+my ( $message ) = pack("S",4096);
 my ( $header ) = $self->generate_ipdr_message_header(
-                        2,"GET_SESSIONS",0,length($message));
+                        2,"GET_SESSIONS",length($message));
 $header.=$message;
 return $header;
 }
@@ -691,7 +846,7 @@ sub construct_get_keepalive
 {
 my ( $self ) = shift;
 my ( $header ) = $self->generate_ipdr_message_header(
-                        2,"KEEP_ALIVE",0,0);
+                        2,"KEEP_ALIVE",0);
 return $header;
 }
 
@@ -702,7 +857,7 @@ my ( $self ) = shift;
 if ( !$self->create_initiator_id() )
         { return 0; }
 my ( $header ) = $self->generate_ipdr_message_header(
-                        2,"FLOW_START",0,0);
+                        2,"FLOW_START",0);
 return $header;
 }
 
@@ -722,7 +877,7 @@ my ( $message ) = pack("NSNN",
 		$self->{_GLOBAL}{'KeepAlive'} );
 $message.=$self->{_GLOBAL}{'VendorID'};
 my ( $header ) = $self->generate_ipdr_message_header(
-			2,"CONNECT",0,length($message));
+			2,"CONNECT",length($message));
 $header.=$message;
 
 return $header;
@@ -766,6 +921,33 @@ $self->{_GLOBAL}{'LocalPort'}=$lsn->sockport();
 $self->{_GLOBAL}{'Handle'} = $lsn;
 $self->{_GLOBAL}{'Selector'}=new IO::Select( $lsn );
 $self->{_GLOBAL}{'STATUS'}="Success Connected";
+
+$self->{_GLOBAL}{'data_ack'}=0;
+$self->{_GLOBAL}{'ERROR'}="" ;
+$self->{_GLOBAL}{'data_processing'}=0;
+
+$self->{_GLOBAL}{'template'}= {};
+$self->{_GLOBAL}{'sessioninfo'}= {};
+$self->{_GLOBAL}{'current_data'}= {};
+$self->{_GLOBAL}{'complete_decoded_data'} = {};
+
+$self->{_GLOBAL}{'AckTime'}=0;
+$self->{_GLOBAL}{'AckSequence'}=0;
+$self->{_GLOBAL}{'data_capture_running'}=0;
+$self->{_GLOBAL}{'data_capture_running_time'}=0;
+$self->{_GLOBAL}{'data_capture_data_count'}=0;
+$self->{_GLOBAL}{'data_capture_keep_alive'}=0;
+$self->{_GLOBAL}{'Session'}=0;
+
+if ( $self->{_GLOBAL}{'DEBUG'} > 0 )
+	{
+	my $test = $self->{_GLOBAL};
+	foreach my $setting ( keys %{$test} )
+		{
+		print "Global setting '$setting' value is '${$test}{$setting}'\n";
+		}
+	}
+
 return 1;
 }
 
@@ -780,10 +962,10 @@ sub send_message
 my ( $self ) = shift;
 my ( $message ) = shift;
 if ( !$self->{_GLOBAL}{'Handle'} ) { return 0; }
-my ( $length_sent );
+my ( $length_sent ) = 0;
 eval {
 	local $SIG{ALRM} = sub { die "alarm\n" };
-	alarm 1;
+	alarm 5;
 	$length_sent = syswrite ( $self->{_GLOBAL}{'Handle'}, $message );
 	alarm 0;
 	};
@@ -877,6 +1059,108 @@ my ( $message_name ) =@_;
 my $messages = _message_types();
 return ${$messages}{$message_name};
 }
+
+sub _extract_session_data
+{
+my ( $self ) = shift;
+my ( $session_data ) = shift;
+my ( $session_extract ) = shift;
+
+print "Length of session data is '".length($session_data)."'\n" if $self->{_GLOBAL}{'DEBUG'}>1;
+if ( $self->{_GLOBAL}{'DEBUG'}>4 )
+        {
+	print "Session data segment - ";
+        for($a=0;$a<length($session_data);$a++)
+                {
+                printf("%02x-", ord(substr($session_data,$a,2)));
+                }
+        print "\n";
+        }
+my ( $sessions_count ) = unpack("N",$session_data);
+$session_data = substr($session_data,4,length($session_data)-4);
+
+print "Sessions count '$sessions_count'\n" if $self->{_GLOBAL}{'DEBUG'}>1;
+for ( my $session_decode=0; $session_decode<$sessions_count; $session_decode++ )
+	{
+	my ( $session_id, $reserved ) = unpack("CC",$session_data);
+	my ( $sessionName ) = "";
+	my ( $sessionDescription ) = "";
+	my ( $ackTime ) = 0;
+	my ( $ackSeq ) = 0 ;
+
+	$session_data = substr($session_data,2,length($session_data)-2);
+
+	( $sessionName, $session_data ) = _extract_utf8_string ( $session_data );
+	( $sessionDescription, $session_data ) = _extract_utf8_string ( $session_data );
+	( $ackTime, $ackSeq ) = unpack ("NN", $session_data );
+
+	print "Session id is '$session_id'\n" if $self->{_GLOBAL}{'DEBUG'}>1;
+	print "Session name is '$sessionName'\n" if $self->{_GLOBAL}{'DEBUG'}>1;
+	print "Session description is '$sessionDescription'\n" if $self->{_GLOBAL}{'DEBUG'}>1;
+	print "Session ackTime '$ackTime'\n" if $self->{_GLOBAL}{'DEBUG'}>1;
+	print "Session ackSeq '$ackSeq'\n" if $self->{_GLOBAL}{'DEBUG'}>1;
+
+	${$session_extract}{$session_decode}{'SessionID'} = $session_id;
+	${$session_extract}{$session_decode}{'SessionName'} = $sessionName;
+	${$session_extract}{$session_decode}{'SessionDescription'} = $sessionDescription;
+	${$session_extract}{$session_decode}{'ackTime'} = $ackTime;
+	${$session_extract}{$session_decode}{'ackSeq'} = $ackSeq;
+
+	$session_data = substr($session_data,8,length($session_data)-8);
+
+	}
+return 1;
+}
+
+sub update_session_parameters
+{
+my ( $self ) = shift;
+my ( $session_extract ) =  $self->{_GLOBAL}{'sessioninfo'};
+my ( $debug ) = $self->{_GLOBAL}{'DEBUG'};
+my ( @sessions ) = keys %{$session_extract};
+
+print "Session Update\n\n" if $debug>0;
+print "Number of sessions is '".scalar(@sessions)."'\n" if $debug>0;
+
+if ( $debug>0 )
+	{
+	if ( scalar(@sessions)>1 )
+		{
+		print "More than one session found. Using First.\n";
+		}
+	}
+
+#foreach my $testing ( keys %{$session_extract} )
+#	{
+#	print "Testing is '$testing'\n";
+#	}
+print "Session Update\n\n" if $debug>0;
+
+print "Session name in use is '".${$session_extract}{0}{'SessionName'}."'\n" if $debug>0;
+print "Session description in use us '".${$session_extract}{0}{'SessionDescription'}."'\n" if $debug>0;
+
+$self->{_GLOBAL}{'AckSequence'} = ${$session_extract}{0}{'ackSeq'};
+print "Setting Ack Seq to '".$self->{_GLOBAL}{'AckSequence'}."'\n" if $debug>0;
+
+my ( $margin_time ) = ${$session_extract}{0}{'ackTime'}*0.05;
+if ( $margin_time>15 ) { $margin_time=15; }
+if ( !$self->{_GLOBAL}{'AckTime'} || $self->{_GLOBAL}{'AckTime'}==0 )
+	{
+	$self->{_GLOBAL}{'AckTime'} = ${$session_extract}{0}{'ackTime'}-$margin_time;
+	print "Ack time is set to '".$self->{_GLOBAL}{'AckTime'}."'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
+	}
+
+if ( !$self->{_GLOBAL}{'Session'} || $self->{_GLOBAL}{'Session'}==0 )
+        {
+        $self->{_GLOBAL}{'Session'} = ${$session_extract}{0}{'SessionID'};
+        print "Session ID is set to '".$self->{_GLOBAL}{'Session'}."'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
+        }
+
+print "Session Update\n\n" if $debug>0;
+
+return 1;
+}
+
 
 sub _extract_template_data
 {
@@ -1120,7 +1404,13 @@ while ( $self->check_data_handles && $self->{_GLOBAL}{'ERROR'}!~/not connected/i
 
         # If the message is a connect_response, send a flow_start
         if ( $self->return_current_type()=~/^CONNECT_RESPONSE$/i )
-                { $self->send_flow_start_message(); }
+                { 
+		$self->send_get_sessions(); 
+#		$self->update_session_parameters();
+		}
+
+	if ( $self->return_current_type()=~/^GET_SESSIONS_RESPONSE$/i )
+		{ $self->send_flow_start_message(); }
 
         # If the message is a template data, store the template
         # and ack the template
@@ -1147,6 +1437,55 @@ while ( $self->check_data_handles && $self->{_GLOBAL}{'ERROR'}!~/not connected/i
 		$self->decode_data( );
                 }
 
+	# We need to make sure we decoded the last message
+	# before checking if we can throw it out.
+        if ( $self->{_GLOBAL}{'data_capture_running'}>=$self->{_GLOBAL}{'MaxRecords'}
+                && $self->{_GLOBAL}{'MaxRecords'}>0)
+                {
+                $self->{_GLOBAL}{'data_capture_running'}=0;
+                $self->max_records_segment();
+                }
+
+	# so if you are receiving more data than a keepalive you may need
+	# to send a data_ack
+        if ( ((time()-$self->{_GLOBAL}{'data_capture_running_time'})
+                        > $self->{_GLOBAL}{'AckTime'})
+			&& $self->return_current_type()=~/^DATA$/i )
+                {
+                if ( defined( $self->get_internal_value('dsn_sequence')) )
+                        {
+                        $self->{_GLOBAL}{'data_capture_running_time'}=time();
+			$self->{_GLOBAL}{'data_capture_data_count'}=0;
+			print "Sending AckTime data ack.\n\n" if $self->{_GLOBAL}{'DEBUG'}>0;
+                        $self->send_data_ack(
+                                $self->get_internal_value('dsn_configID'),
+                                $self->get_internal_value('dsn_sequence')
+                                        );
+                        }
+                }
+
+	if ( ($self->{_GLOBAL}{'data_capture_data_count'}
+			>= $self->{_GLOBAL}{'AckSequence'})
+			&& $self->return_current_type()=~/^DATA$/i )
+		{
+		if ( defined( $self->get_internal_value('dsn_sequence')) )
+			{
+			$self->{_GLOBAL}{'data_capture_data_count'}=0;
+			print "Sending AckSequence data ack.\n\n" if $self->{_GLOBAL}{'DEBUG'}>0;
+			$self->send_data_ack(
+				$self->get_internal_value('dsn_configID'),
+				$self->get_internal_value('dsn_sequence')
+					);
+			}
+		}
+	
+	if ( (time()-$self->{_GLOBAL}{'data_capture_keep_alive'})
+			> $self->{_GLOBAL}{'KeepAlive'} )
+		{
+		$self->send_message( $self->construct_get_keepalive() );
+		$self->{_GLOBAL}{'data_capture_keep_alive'}=time();
+		}
+
         # If the message is a session_stop, we should probably
         # send a disconnect, but we dont as yet.
 	# with session stop you need to send a keepalive, as
@@ -1161,10 +1500,13 @@ while ( $self->check_data_handles && $self->{_GLOBAL}{'ERROR'}!~/not connected/i
         # went wrong somewhere.
         if ( $self->return_current_type()=~/^ERROR$/i )
                 {
+		print "Disconnect and closed TCP.\n" if $self->{_GLOBAL}{'DEBUG'}>0;
                 return 0;
                 }
 		}
         }
+
+print "Disconnect and closed TCP.\n" if $self->{_GLOBAL}{'DEBUG'}>0;
 
 return 1;
 }
@@ -1174,7 +1516,7 @@ return 1;
 sub check_data_handles
 {
 my ( $self ) = shift;
-my ( @handle ) = $self->{_GLOBAL}{'Selector'}->can_read;
+my ( @handle ) = $self->{_GLOBAL}{'Selector'}->can_read( $self->{_GLOBAL}{'KeepAlive'} );
 if ( !@handle ) {  $self->{_GLOBAL}{'ERROR'}="Not Connected"; }
 $self->{_GLOBAL}{'ready_handles'}=\@handle;
 }
@@ -1194,11 +1536,17 @@ my ( $handles ) = $self->{_GLOBAL}{'ready_handles'};
 
 foreach my $handle ( @{$handles} )
 	{ 
-	$link = sysread($handle,$buffer,1024);
-	if ( !$buffer )
-		{
-		$handle->close(); return 1;
-		}
+
+	eval {
+        local $SIG{ALRM} = sub { die "alarm\n" };
+        alarm 5;
+        $link = sysread($handle,$buffer,1024);
+        alarm 0;
+        };
+
+	if ( $@=~/alarm/i )
+        	{ $handle->close(); return 1; }
+
 	print "Read buffer size of '".length($buffer)."'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
 	$self->{_GLOBAL}{'data_received'} .=$buffer;
 	}
@@ -1310,6 +1658,252 @@ if ( $origin!=$part1 )
         {
         return 1;
         }
+}
+
+
+sub _transform_into_xml
+{
+my $self = shift;
+my $data_pointer = shift;
+my $complete;
+my $xml;
+my $header;
+my $footer;
+
+my $ipdrrecorder;
+my $ipdrcreationtime;
+
+foreach my $sequence ( sort { $a<=>$b } keys %{$data_pointer} )
+        {
+	$xml.="<IPDR xsi:type=\"DOCSIS-Type\">";
+	$xml.="<IPDRcreationTime>".${$data_pointer}{$sequence}{'RecCreationTime'}."</IPDRcreationTime>";
+	$xml.="<CMTShostName>".${$data_pointer}{$sequence}{'CMTShostName'}."</CMTShostName>";
+	$xml.="<CMTSipAddress>".${$data_pointer}{$sequence}{'CMTSipAddress'}."</CMTSipAddress>";
+	$xml.="<CMTSsysUpTime>".${$data_pointer}{$sequence}{'CMTSsysUpTime'}."</CMTSsysUpTime>";
+	$xml.="<CMTScatvIfName>".${$data_pointer}{$sequence}{'CMTScatvIfName'}."</CMTScatvIfName>";
+	$xml.="<CMTScatvIfIndex>".${$data_pointer}{$sequence}{'CMTScatvIfIndex'}."</CMTScatvIfIndex>";
+	$xml.="<CMTSdownIfName>".${$data_pointer}{$sequence}{'CMTSdownIfName'}."</CMTSdownIfName>";
+	$xml.="<CMTSupIfName>".${$data_pointer}{$sequence}{'CMTSupIfName'}."</CMTSupIfName>";
+	$xml.="<CMTSupIfType>".${$data_pointer}{$sequence}{'CMTSupIfType'}."</CMTSupIfType>";
+	$xml.="<CMmacAddress>".${$data_pointer}{$sequence}{'CMMacAddress'}."</CMmacAddress>";
+	$xml.="<CMipAddress>".${$data_pointer}{$sequence}{'CMipAddress'}."</CMipAddress>";
+	$xml.="<CMdocsisMode>".${$data_pointer}{$sequence}{'CMdocsisMode'}."</CMdocsisMode>";
+	$xml.="<CMCPEipAddress>".${$data_pointer}{$sequence}{'CMcpeIpv4List'}."</CMCPEipAddress>";
+	$xml.="<RecType>".${$data_pointer}{$sequence}{'RecType'}."</RecType>";
+	$xml.="<serviceIdentifier>".${$data_pointer}{$sequence}{'serviceIdentifier'}."</serviceIdentifier>";
+	$xml.="<serviceClassName>".${$data_pointer}{$sequence}{'serviceClassName'}."</serviceClassName>";
+	$xml.="<serviceDirection>".${$data_pointer}{$sequence}{'serviceDirection'}."</serviceDirection>";
+	$xml.="<serviceOctetsPassed>".${$data_pointer}{$sequence}{'serviceOctetsPassed'}."</serviceOctetsPassed>";
+	$xml.="<servicePktsPassed>".${$data_pointer}{$sequence}{'servicePktsPassed'}."</servicePktsPassed>";
+	$xml.="<serviceSlaDropPkts>".${$data_pointer}{$sequence}{'serviceSlaDropPkts'}."</serviceSlaDropPkts>";
+	$xml.="<serviceSlaDelayPkts>".${$data_pointer}{$sequence}{'serviceSlaDelayPkts'}."</serviceSlaDelayPkts>";
+	$xml.="<serviceTimeCreated>".${$data_pointer}{$sequence}{'serviceTimeCreated'}."</serviceTimeCreated>";
+	$xml.="<serviceTimeActive>".${$data_pointer}{$sequence}{'serviceTimeActive'}."</serviceTimeActive>";
+	$xml.="</IPDR>";
+	$ipdrrecorder = ${$data_pointer}{$sequence}{'CMTShostName'};
+        }
+$ipdrcreationtime = ctime();
+$header = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
+$header .= "<IPDRDoc ";
+$header .= "xmlns=\"http://www.ipdr.org/namespaces/ipdr\" ";
+$header .= "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" ";
+$header .= "xsi:schemaLocation=\"DOCSIS-3.1-B.0.xsd\" ";
+$header .= "docId=\"CEABBE99-0000-0000-0000-000000000000\" ";
+$header .= "creationTime=\"".$ipdrcreationtime."\" ";
+$header .= "IPDRRecorderInfo=\"$ipdrrecorder\" ";
+$header .= "version=\"99.99\">";
+$footer .= "<IPDRDoc.End count=\"".scalar( keys %{$data_pointer})."\" endTime=\"".$ipdrcreationtime."\"/>";
+$footer .= "</IPDRDoc>";
+$complete = $header.$xml.$footer;
+
+return $complete;
+}
+
+sub _send_to_clear_destination
+{
+my ( $self ) = shift;
+my ( $data ) = shift;
+my ( $length_sent ) = 0;
+my ( $send_size ) = 1000;
+
+my $child;
+
+if ( $self->{_GLOBAL}{'RemoteMulti'} )
+        {
+        # Multi remote needs to fork out the sending so it can
+        # do all the destinations at once otherwise it *may*
+        # take a while to get through any number of
+        # destinations set.
+        #
+        # Multiple destination is set to the follow
+        #
+        # Destination IP:Destination Port:Destination Speed,
+        #
+        # if using secure then you need to make sure the
+        # keys are the same for each destination host.
+        #
+        foreach my $destination ( split(/,/,$self->{_GLOBAL}{'RemoteMulti'}) )
+                {
+                if ($child=fork)
+                        { } elsif (defined $child)
+                                {
+                                my ( $remoteip, $remoteport, $remotespeed ) = (split(/:/,$destination))[0,1,2];
+				if ( !$remoteip || !$remoteport )
+					{
+					waitpid($child,0);
+					exit(0);
+					}
+				if ( !$remotespeed )
+					{
+					$remotespeed=10;
+					}
+                                my $lsr;
+                                if ( $self->{_GLOBAL}{'RemoteSecure'} )
+                                        {
+                                        $lsr = IO::Socket::SSL->new
+                                                (
+                                                PeerAddr => $remoteip,
+                                                PeerPort => $remoteport,
+                                                SSL_key_file => $self->{_GLOBAL}{'SSLKeyFile'},
+                                                ReuseAddr => 1,
+                                                Proto     => 'tcp',
+                                                Timeout    => 5
+                                                        );
+                                        }
+                                        else
+                                        {
+                                        $lsr = IO::Socket::INET->new
+                                                (
+                                                PeerAddr => $remoteip,
+                                                PeerPort => $remoteport,
+                                                ReuseAddr => 1,
+                                                Proto     => 'tcp',
+                                                Timeout    => 5
+                                                        );
+                                        }
+#                                $lsr->autoflush(0);
+                                if ( !$lsr )
+                                        {
+                                        waitpid($child,0);
+                                        exit(0);
+                                        }
+                                my $selector = new IO::Select( $lsr );
+                                my $timer = (1/($remotespeed/8) )*$send_size;
+                                my $print_status = 1;
+                                my $chunk;
+                                while ( length($data)>0 && (my @ready = $selector->can_write ) )
+                                        {
+                                        foreach my $write ( @ready )
+                                                {
+                                                if ( $write == $lsr )
+                                                        {
+                                                        #print "handle is '$write'\n";
+                                                        if ( length($data)<=$send_size)
+                                                                {
+                                                                #print "ASending '$data'\n\n\n";
+                                                                $print_status = print $write $data;
+                                                                $data = "";
+                                                                }
+                                                                else
+                                                                {
+                                                                $chunk = substr($data,0,$send_size);
+                                                                $print_status = print $write $chunk;
+                                                                #print "BSending '$chunk'\n\n\n";
+                                                                $data = substr($data,$send_size,length($data)-$send_size);
+                                                                }
+                                                        }
+                                                }
+                                        # Timer added for remotesendspeed. Useful for management networks with limited
+                                        # speed, such as 10mb/s or even t1/e1 speeds of 1.6/2 Mbp/s
+                                        usleep($timer);
+                                        #print "Ending pass for send.\n";
+                                        }
+				usleep(100000);
+                                $lsr->close();
+                                waitpid($child,0);
+                                exit(0);
+                                }
+                }
+        }
+        else
+        {
+	if ($child=fork)
+		{ } elsif (defined $child)
+	{
+        my $lsr;
+        if ( $self->{_GLOBAL}{'RemoteSecure'} )
+                {
+                $lsr = IO::Socket::SSL->new
+                        (
+                        PeerAddr => $self->{_GLOBAL}{'RemoteIP'},
+                        PeerPort => $self->{_GLOBAL}{'RemotePort'},
+                        SSL_key_file => $self->{_GLOBAL}{'SSLKeyFile'},
+                        ReuseAddr => 1,
+                        Proto     => 'tcp',
+                        Timeout    => 5
+                        );
+                }
+                else
+                {
+		#print "Remote IP is '".$self->{_GLOBAL}{'RemoteIP'}."'\n";
+		#print "Remote Port is '".$self->{_GLOBAL}{'RemotePort'}."'\n";
+                $lsr = IO::Socket::INET->new
+                        (
+                        PeerAddr => $self->{_GLOBAL}{'RemoteIP'},
+                        PeerPort => $self->{_GLOBAL}{'RemotePort'},
+                        ReuseAddr => 1,
+                        Proto     => 'tcp',
+                        Timeout    => 5
+                        );
+                }
+        if (!$lsr)
+                {
+		waitpid($child,0);
+                return 0;
+                }
+#	$lsr->autoflush(0);
+        my $selector = new IO::Select( $lsr );
+        my $timer = (1/($self->{_GLOBAL}{'RemoteSpeed'}/8) )*$send_size;
+        my $chunk;
+        my $print_status = 1;
+        while ( length($data)>0 && (my @ready = $selector->can_write ) && $print_status )
+                {
+                foreach my $write ( @ready )
+                                {
+                                if ( $write == $lsr )
+                                        {
+                                        #print "handle is '$write'\n";
+                                        if ( length($data)<=$send_size)
+                                                {
+                                                print "ASending '$data'\n\n\n";
+                                                $print_status = print $write $data;
+						# we need the last data chunk
+						#$padding = $data;
+						$data = "";
+						# we need the final write handle.
+                                                }
+                                                else
+                                                {
+                                                $chunk = substr($data,0,$send_size);
+                                                $print_status = print $write $chunk;
+                                                print "BSending '$chunk'\n\n\n";
+                                                $data = substr($data,$send_size,length($data)-$send_size);
+                                                }
+                                        }
+                                }
+                usleep($timer);
+                }
+	# ok so why does this work ?
+	# from experiments the final chunk does not seem to be sent, so here
+	# we send it again ....
+	usleep(100000);
+        $lsr->close();
+	waitpid($child,0);
+        }
+
+	}
+
+return 1;
 }
 
 
