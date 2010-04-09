@@ -13,15 +13,15 @@ $SIG{CHLD}="IGNORE";
 
 =head1 NAME
 
-IPDR::Collection::Cisco - IPDR Collection Client (Cisco Specification)
+IPDR::Collection::CiscoSSL - IPDR Collection Client (Cisco Specification)
 
 =head1 VERSION
 
-Version 0.25
+Version 0.29
 
 =cut
 
-our $VERSION = '0.25';
+our $VERSION = '0.29';
 
 =head1 SYNOPSIS
 
@@ -313,6 +313,9 @@ sub new {
         if ( !$self->{_GLOBAL}{'DataHandler'} )
                 { die "DataHandler Function Must Be Defined"; }
 
+        if ( !$self->{_GLOBAL}{'PollTime'} )
+	                { $self->{_GLOBAL}{'PollTime'}=900 }
+
         $self->{_GLOBAL}{'handles'}= \%handles;
 	$self->{_GLOBAL}{'complete_decoded_data'} = \%complete_decoded_data;
 
@@ -382,7 +385,8 @@ foreach my $handle ( @{$current_handles} )
 					$self->{_GLOBAL}{'DataHandler'}->(
 						${$handles}{$handle}{'addr'},
 						${$handles}{$handle}{'port'},
-						${$handles}{$handle}{'data'} );
+						${$handles}{$handle}{'data'},
+						$self );
 					}
 				# remote sending needs to go here.
 				if ( $self->{_GLOBAL}{'RemoteIP'} && $self->{_GLOBAL}{'RemotePort'} )
@@ -413,6 +417,12 @@ foreach my $handle ( @{$current_handles} )
 		}
 	}
 return 1;
+}
+
+sub ReturnPollTime
+{
+my ( $self ) = shift;
+return $self->{_GLOBAL}{'PollTime'};
 }
 
 sub return_error
@@ -809,6 +819,8 @@ my ( %templates ) =
 		'Downstream-serviceSlaDropPkts' => 'SLAdropPkts',
 		'Upstream-serviceIdentifier' => 'SFID',
 		'Downstream-serviceIdentifier' => 'SFID',
+		'Upstream-serviceTimeActive' => 'serviceTimeActive',
+		'Downstream-serviceTimeActive' => 'serviceTimeActive',
 		'all-CMTShostname' => 'CMTShostname',
 		'all-CMdocsisMode' => 'CMdocsisMode',
 		'all-CMTSipAddress' => 'CMTSipAddress',
@@ -833,6 +845,8 @@ my ( %templates ) =
 		'Downstream-serviceSlaDelayPkts' => 'serviceSlaDelayPkts',
 		'Upstream-serviceSlaDropPkts' => 'serviceSlaDropPkts',
 		'Downstream-serviceSlaDropPkts' => 'serviceSlaDropPkts',
+		'Upstream-serviceTimeActive' => 'serviceTimeActive',
+		'Downstream-serviceTimeActive' => 'serviceTimeActive',
 		'all-CMTShostName' => 'CMTShostName',
 		'all-IPDRcreationTime' => 'IPDRcreationTime',
 		'all-RecType' => 'RecType',
@@ -860,6 +874,8 @@ my ( %templates ) =
 		'Downstream-serviceSlaDelayPkts' => 'serviceSlaDelayPkts',
 		'Upstream-serviceSlaDropPkts' => 'serviceSlaDropPkts',
 		'Downstream-serviceSlaDropPkts' => 'serviceSlaDropPkts',
+		'Upstream-serviceTimeActive' => 'serviceTimeActive',
+		'Downstream-serviceTimeActive' => 'serviceTimeActive',
 		'all-CMTShostName' => 'CMTShostName',
 		'all-IPDRcreationTime' => 'IPDRcreationTime',
 		'all-RecType' => 'RecType',
@@ -913,7 +929,7 @@ your bug as I make changes.
 
 You can find documentation for this module with the perldoc command.
 
-    perldoc IPDR::Cisco
+    perldoc IPDR::Collection::CiscoSSL
 
 You can also look for information at:
 
@@ -921,19 +937,19 @@ You can also look for information at:
 
 =item * AnnoCPAN: Annotated CPAN documentation
 
-L<http://annocpan.org/dist/IPDR-Collection-Cisco>
+L<http://annocpan.org/dist/IPDR-Collection-CiscoSSL>
 
 =item * CPAN Ratings
 
-L<http://cpanratings.perl.org/d/IPDR-Collection-Cisco>
+L<http://cpanratings.perl.org/d/IPDR-Collection-CiscoSSL>
 
 =item * RT: CPAN's request tracker
 
-L<http://rt.cpan.org/NoAuth/Bugs.html?Dist=IPDR-Collection-Cisco>
+L<http://rt.cpan.org/NoAuth/Bugs.html?Dist=IPDR-Collection-CiscoSSL>
 
 =item * Search CPAN
 
-L<http://search.cpan.org/dist/IPDR-Collection-Cisco>
+L<http://search.cpan.org/dist/IPDR-Collection-CiscoSSL>
 
 =back
 
@@ -948,4 +964,4 @@ under the same terms as Perl itself.
 
 =cut
 
-1; # End of IPDR::Collection::Cisco
+1; # End of IPDR::Collection::CiscoSSL

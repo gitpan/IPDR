@@ -8,6 +8,28 @@ artistic_2 license and any changes made,bugs found, general information
 
 additions should be presented back to the author.
 
+0.29	6/04/2010
+	Added SessionName so that you can specify by name the session
+	you wish to use on the remote server. This allows multiple
+	sessions configured on the remote side to be chosen. If the name
+	is not found  the first session on the remote side is used.
+	All values are now unsigned. If you want signed, pack, unpack
+	in your own code as part of the DataHandler pointer.
+0.28	4/04/2010
+	Added full template support for XDR datatypes. Signed values
+	may be problematic on the platform due to endianess.
+	Started support for Logging output
+	Started to add support for Endianess changes.
+0.27	31/03/2010
+	Added MACFormat to the Client.pm as an option. This has two values
+	1 and 2. Default 1 if omitted and determines how the MAC address
+	will be formatted. The default is aabb.ccdd.eeff however when set 
+	to 2 the format is AA-BB-CC-DD-EE-FF
+0.26	30/03/2010
+	Added serviceActiveTime into XML parser.
+	Added PollTime as an option into new object ( default 900 seconds )
+	Added ReturnPollTime as a function to return PollTime set
+	Fixed DataHandler call to include $self object
 0.25    17/01/2010
 	SessionID finally fixed ( case sensitive typo ).
 	Change network write and reads to include timeouts

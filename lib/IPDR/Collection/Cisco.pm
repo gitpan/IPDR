@@ -16,11 +16,11 @@ IPDR::Collection::Cisco - IPDR Collection Client (Cisco Specification)
 
 =head1 VERSION
 
-Version 0.25
+Version 0.29
 
 =cut
 
-our $VERSION = '0.25';
+our $VERSION = '0.29';
 
 =head1 SYNOPSIS
 
@@ -292,6 +292,9 @@ sub new {
         if ( !$self->{_GLOBAL}{'DataHandler'} )
                 { die "DataHandler Function Must Be Defined"; }
 
+        if ( !$self->{_GLOBAL}{'PollTime'} )
+                { $self->{_GLOBAL}{'PollTime'}=900 }
+
         $self->{_GLOBAL}{'handles'}= \%handles;
 	$self->{_GLOBAL}{'complete_decoded_data'} = \%complete_decoded_data;
 
@@ -364,7 +367,8 @@ foreach my $handle ( @{$current_handles} )
 					$self->{_GLOBAL}{'DataHandler'}->(
 						${$handles}{$handle}{'addr'},
 						${$handles}{$handle}{'port'},
-						${$handles}{$handle}{'data'}
+						${$handles}{$handle}{'data'},
+						$self
 						);
 					}
 				# remote sending needs to go here.
@@ -394,6 +398,12 @@ foreach my $handle ( @{$current_handles} )
 		}
 	}
 return 1;
+}
+
+sub ReturnPollTime
+{
+my ( $self ) = shift;
+return $self->{_GLOBAL}{'PollTime'};
 }
 
 sub return_error
@@ -784,6 +794,8 @@ my ( %templates ) =
 		'Downstream-serviceSlaDropPkts' => 'SLAdropPkts',
 		'Upstream-serviceIdentifier' => 'SFID',
 		'Downstream-serviceIdentifier' => 'SFID',
+		'Upstream-serviceTimeActive' => 'serviceTimeActive',
+		'Downstream-serviceTimeActive' => 'serviceTimeActive',
 		'all-CMTShostname' => 'CMTShostname',
 		'all-CMdocsisMode' => 'CMdocsisMode',
 		'all-CMTSipAddress' => 'CMTSipAddress',
@@ -808,6 +820,8 @@ my ( %templates ) =
 		'Downstream-serviceSlaDelayPkts' => 'serviceSlaDelayPkts',
 		'Upstream-serviceSlaDropPkts' => 'serviceSlaDropPkts',
 		'Downstream-serviceSlaDropPkts' => 'serviceSlaDropPkts',
+		'Upstream-serviceTimeActive' => 'serviceTimeActive',
+		'Downstream-serviceTimeActive' => 'serviceTimeActive',
 		'all-CMTShostName' => 'CMTShostName',
 		'all-IPDRcreationTime' => 'IPDRcreationTime',
 		'all-RecType' => 'RecType',
@@ -835,6 +849,8 @@ my ( %templates ) =
 		'Downstream-serviceSlaDelayPkts' => 'serviceSlaDelayPkts',
 		'Upstream-serviceSlaDropPkts' => 'serviceSlaDropPkts',
 		'Downstream-serviceSlaDropPkts' => 'serviceSlaDropPkts',
+		'Upstream-serviceTimeActive' => 'serviceTimeActive',
+		'Downstream-serviceTimeActive' => 'serviceTimeActive',
 		'all-CMTShostName' => 'CMTShostName',
 		'all-IPDRcreationTime' => 'IPDRcreationTime',
 		'all-RecType' => 'RecType',

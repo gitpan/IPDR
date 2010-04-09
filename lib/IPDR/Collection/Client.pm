@@ -16,11 +16,11 @@ IPDR::Collection::Client - IPDR Collection Client
 
 =head1 VERSION
 
-Version 0.25
+Version 0.29
 
 =cut
 
-our $VERSION = '0.25';
+our $VERSION = '0.29';
 
 =head1 SYNOPSIS
 
@@ -230,6 +230,9 @@ sub new {
 	if ( !$self->{_GLOBAL}{'Timeout'} )
 		{ $self->{_GLOBAL}{'Timeout'}=10; }
 
+	if ( !$self->{_GLOBAL}{'SessionName'} )
+		{ $self->{_GLOBAL}{'SessionName'}=""; }
+
 	if ( !$self->{_GLOBAL}{'MaxRecords'} )
 		{ $self->{_GLOBAL}{'MaxRecords'}=0; }
 
@@ -256,6 +259,22 @@ sub new {
 
 	if ( !$self->{_GLOBAL}{'AckSequenceOverride'} )
 		{ $self->{_GLOBAL}{'AckSequenceOverride'}=0; }
+
+        if ( !$self->{_GLOBAL}{'PollTime'} )
+	                { $self->{_GLOBAL}{'PollTime'}=900 }
+
+        if ( !$self->{_GLOBAL}{'MACFormat'} )
+	                { $self->{_GLOBAL}{'MACFormat'}=1 }
+
+        if ( !$self->{_GLOBAL}{'LogDirectory'} )
+	                { $self->{_GLOBAL}{'LogDirectory'}=""; }
+        if ( !$self->{_GLOBAL}{'LogEnabled'} )
+	                { $self->{_GLOBAL}{'LogEnabled'}=0; }
+
+        if ( !$self->{_GLOBAL}{'BigLittleEndian'} )
+	                { $self->{_GLOBAL}{'BigLittleEndian'}=0; }
+
+
 
 	$self->{_GLOBAL}{'data_ack'}=0;
 	$self->{_GLOBAL}{'ERROR'}="" ;
@@ -693,7 +712,7 @@ if ( $self->get_internal_value('data_ack') )
 	if ($child=fork)
 		{ } elsif (defined $child)
 		{
-		my $xml_transform;
+		my $xml_transform="";
 		#print "Remote IP is '".$self->{_GLOBAL}{'RemoteIP'}."'\n";
 		#print "Remote Port is '".$self->{_GLOBAL}{'RemotePort'}."'\n";
 		if ( ($self->{_GLOBAL}{'RemoteIP'} &&
@@ -1118,6 +1137,7 @@ my ( $self ) = shift;
 my ( $session_extract ) =  $self->{_GLOBAL}{'sessioninfo'};
 my ( $debug ) = $self->{_GLOBAL}{'DEBUG'};
 my ( @sessions ) = keys %{$session_extract};
+my ( $session_name_lock ) = 0;
 
 print "Session Update\n\n" if $debug>0;
 print "Number of sessions is '".scalar(@sessions)."'\n" if $debug>0;
@@ -1127,32 +1147,41 @@ if ( $debug>0 )
 	if ( scalar(@sessions)>1 )
 		{
 		print "More than one session found. Using First.\n";
+		print "Or selecting by name if configured.\n";
 		}
 	}
 
-#foreach my $testing ( keys %{$session_extract} )
-#	{
-#	print "Testing is '$testing'\n";
-#	}
+if ( length($self->{_GLOBAL}{'SessionName'})>2 )
+	{
+	foreach my $sessions ( keys %{$session_extract} )
+		{
+		if ( ${$session_extract}{$sessions}{'SessionName'} eq $self->{_GLOBAL}{'SessionName'} )
+			{
+			print "Session name locked to value '".$sessions."'\n" if $debug>3;
+			$session_name_lock = $sessions;
+			}
+		}
+	}
+
 print "Session Update\n\n" if $debug>0;
 
-print "Session name in use is '".${$session_extract}{0}{'SessionName'}."'\n" if $debug>0;
-print "Session description in use us '".${$session_extract}{0}{'SessionDescription'}."'\n" if $debug>0;
+print "Session name in use is '".${$session_extract}{$session_name_lock}{'SessionName'}."'\n" if $debug>0;
+print "Session description in use us '".${$session_extract}{$session_name_lock}{'SessionDescription'}."'\n" if $debug>0;
 
-$self->{_GLOBAL}{'AckSequence'} = ${$session_extract}{0}{'ackSeq'};
+$self->{_GLOBAL}{'AckSequence'} = ${$session_extract}{$session_name_lock}{'ackSeq'};
 print "Setting Ack Seq to '".$self->{_GLOBAL}{'AckSequence'}."'\n" if $debug>0;
 
-my ( $margin_time ) = ${$session_extract}{0}{'ackTime'}*0.05;
+my ( $margin_time ) = ${$session_extract}{$session_name_lock}{'ackTime'}*0.05;
 if ( $margin_time>15 ) { $margin_time=15; }
 if ( !$self->{_GLOBAL}{'AckTime'} || $self->{_GLOBAL}{'AckTime'}==0 )
 	{
-	$self->{_GLOBAL}{'AckTime'} = ${$session_extract}{0}{'ackTime'}-$margin_time;
+	$self->{_GLOBAL}{'AckTime'} = ${$session_extract}{$session_name_lock}{'ackTime'}-$margin_time;
 	print "Ack time is set to '".$self->{_GLOBAL}{'AckTime'}."'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
 	}
 
 if ( !$self->{_GLOBAL}{'Session'} || $self->{_GLOBAL}{'Session'}==0 )
         {
-        $self->{_GLOBAL}{'Session'} = ${$session_extract}{0}{'SessionID'};
+        $self->{_GLOBAL}{'Session'} = ${$session_extract}{$session_name_lock}{'SessionID'};
         print "Session ID is set to '".$self->{_GLOBAL}{'Session'}."'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
         }
 
@@ -1232,13 +1261,14 @@ sub _extract_ip_string
 my ( $data ) = @_;
 my ( $new_string );
 if ( !$data ) { return ("",""); }
-( $new_string, $data ) = _extract_int ( $data );
+( $new_string, $data ) = _extract_int_u ( $data );
 ( $new_string ) = _IpIntToQuad ( $new_string );
 return ($new_string,$data);
 }
 
-sub _extract_int
+sub _extract_int_u
 {
+# This is forced to be 32bits wide.
 my ( $data ) = @_;
 if ( length($data)<4 )
 	{
@@ -1248,11 +1278,140 @@ my ( $ip_int ) = unpack("N",$data); $data=substr($data,4,length($data)-4);
 return ($ip_int,$data);
 }
 
+sub _extract_boolean
+{
+my ( $data ) = @_;
+my ( $char);
+( $char, $data ) = _extract_char($data);
+return ($char,$data);
+}
+
+sub _extract_double
+{
+my ( $data ) = @_;
+if ( length($data)<8 )
+	{
+	return ( length($data), $data );
+	}
+my ( $ip_int ) = unpack("NN",$data); $data=substr($data,8,length($data)-8);
+return ($ip_int,$data);
+}
+
+sub _extract_float
+{
+# This is forced to be a single precision float
+# the specification makes no reference to the
+# float type.
+my ( $data ) = @_;
+if ( length($data)<4 )
+	{
+	return ( length($data), $data );
+	}
+my ( $ip_int ) = unpack("f",$data); $data=substr($data,4,length($data)-4);
+return ($ip_int,$data);
+}
+
+sub _extract_int
+{
+my ( $self ) = shift;
+my ( $data ) = shift;
+if ( length($data)<4 )
+	{
+	return ( length($data), $data );
+	}
+my ( $flash_data ) = substr($data,1,4);
+if ( $self->{_GLOBAL}{'DEBUG'} == 5 )
+	{
+	print "data is ".sprintf("%02x%02x%02x%02x",ord(substr($flash_data,1,1)),ord(substr($flash_data,2,1)),ord(substr($flash_data,3,1)),
+			ord(substr($flash_data,4,1)) );
+	}
+if ( $self->{_GLOBAL}{'BigLittleEndian'}==1 )
+	{ $flash_data = _reverse_pattern($flash_data); }
+if ( $self->{_GLOBAL}{'DEBUG'} == 5 )
+	{
+	print "data is ".sprintf("%02x%02x%02x%02x",ord(substr($flash_data,1,1)),ord(substr($flash_data,2,1)),ord(substr($flash_data,3,1)),
+			ord(substr($flash_data,4,1)) );
+	}
+
+my ( $ip_int ) = unpack("I",$flash_data); $data=substr($data,4,length($data)-4);
+return ($ip_int,$data);
+}
+
 sub _extract_short
 {
 my ( $data ) = @_;
-my ( $ip_int ) = unpack("C",$data); $data=substr($data,1,length($data)-1);
+my ( $ip_int ) = unpack("S",$data); $data=substr($data,2,length($data)-2);
 return ($ip_int,$data);
+}
+
+sub _extract_short_u
+{
+my ( $data ) = @_;
+my ( $ip_int ) = unpack("S",$data); $data=substr($data,2,length($data)-2);
+return ($ip_int,$data);
+}
+
+sub _extract_datetimeusec
+{
+my ( $data ) = @_;
+
+my ($part1,$part2) = unpack("NN",$data);
+$part1 = $part1<<32;
+$part1+=$part2;
+
+$data=substr($data,8,length($data)-8);
+
+return ($part1, $data);
+}
+
+sub _extract_uuid
+{
+my ( $data ) = @_;
+
+my ($length,$one_o, $one_t, $two_o, $two_t, $three_o, $three_t,
+        $four_o, $four_t, $five_o, $five_t, $six_o, $six_t,
+        $seven_o, $seven_t, $eight_o, $eight_t) = unpack("NCCCCCCCCCCCCCCCC",$data );
+
+my ($ipv6addr) = sprintf("%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x",
+                $one_o, $one_t, $two_t, $two_t,
+                $three_o, $three_t, $four_o, $four_t,
+                $five_o, $five_t, $six_o, $six_t,
+                $seven_o, $seven_t, $eight_o, $eight_t);
+
+$data=substr($data,20,length($data)-20);
+return ($ipv6addr,$data);
+}
+
+sub _extract_ipaddr
+{
+my ( $data ) = @_;
+my ( $length ) = unpack("N",$data);
+my ( $ipaddr ) = "";
+if ( $length == 16 )
+	{ ( $ipaddr, $data ) = _extract_ipv6addr ( $data ); }
+
+if ( $length == 4 )
+	{ ( $ipaddr, $data ) = _extract_ip_string ( $data ); }
+
+return ( $ipaddr , $data );
+}
+
+sub _extract_ipv6addr
+{
+my ( $data ) = @_;
+
+my ($length,$one_o, $one_t, $two_o, $two_t, $three_o, $three_t,
+        $four_o, $four_t, $five_o, $five_t, $six_o, $six_t,
+        $seven_o, $seven_t, $eight_o, $eight_t) = unpack("NCCCCCCCCCCCCCCCC",$data );
+
+my ($ipv6addr) = sprintf("%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
+                $one_o, $one_t, $two_t, $two_t,
+                $three_o, $three_t, $four_o, $four_t,
+                $five_o, $five_t, $six_o, $six_t,
+                $seven_o, $seven_t, $eight_o, $eight_t);
+
+$data=substr($data,16,length($data)-16);
+return ($ipv6addr,$data);
 }
 
 sub _extract_unknown
@@ -1271,13 +1430,37 @@ $data=substr($data,1,length($data)-1);
 return ($char,$data);
 }
 
-sub _extract_mac
+sub _extract_char_u
 {
 my ( $data ) = @_;
+my ( $char ) = unpack("C",$data);
+$data=substr($data,1,length($data)-1);
+return ($char,$data);
+}
+
+sub _extract_mac
+{
+my ( $self ) = shift;
+my ( $data ) = @_;
+my ( $return_data ) = "";
 my ( $empty, $empty2, $mac1, $mac2, $mac3, $mac4, $mac5, $mac6 ) = unpack ("CCCCCCCC",$data);
-my ( $return_data ) = sprintf("%02x%02x.%02x%02x.%02x%02x",$mac1,$mac2,$mac3,$mac4,$mac5,$mac6);
+if ( $self->{_GLOBAL}{'MACFormat'} == 1 )
+	{ ( $return_data ) = sprintf("%02x%02x.%02x%02x.%02x%02x",$mac1,$mac2,$mac3,$mac4,$mac5,$mac6); }
+if ( $self->{_GLOBAL}{'MACFormat'} == 2 )
+	{ 
+	( $return_data ) = sprintf("%02x-%02x-%02x-%02x-%02x-%02x",$mac1,$mac2,$mac3,$mac4,$mac5,$mac6); 
+	$return_data=~tr/[a-z]/[A-Z]/; 
+	}
 $data=substr($data,8,length($data)-8);
 return ($return_data,$data);
+}
+
+sub _extract_long_u
+{
+my ( $data ) = @_;
+my ( $long ) = decode_64bit_number_u ( $data );
+$data=substr($data,8,length($data)-8);
+return ($long,$data);
 }
 
 sub _extract_long
@@ -1336,21 +1519,52 @@ return $self->{_GLOBAL}{'data_template'};
 
 sub template_value_definitions
 {
+# this template is no longer needed and was
+# originally put in for development purposes
+# in the next few versions this will be removed.
+#
+# point of note, signed values *may* not be 
+# correct due to endianess of a platform. Currently
+# all set to unsigned. Tried on multiple platforms 
+# and something not conforming to spec.
 my %template_params;
 
-$template_params{33}="network_int";
-$template_params{34}="network_int";
-$template_params{36}="long";
+$template_params{33}="network_int_u";
+$template_params{34}="network_int_u";
+$template_params{35}="long_u";
+$template_params{36}="long_u";
+$template_params{37}="float";
+$template_params{38}="double";
 $template_params{39}="ip_list";
 $template_params{40}="string";
+$template_params{41}="boolean";
+$template_params{42}="byte_u";
+$template_params{43}="byte_u";
+$template_params{44}="short_u";
+$template_params{45}="short_u";
+
+$template_params{290}="network_int_u";
 $template_params{548}="long";
 $template_params{802}="network_ip";
+$template_params{1063}="ipv6addr";
+$template_params{1319}="uuid";
+$template_params{1571}="datetimeusec";
 $template_params{1827}="mac";
+$template_params{2087}="ipaddr";
 
 return %template_params;
 }
 
 sub decode_64bit_number
+{
+# see comments on 64bit stuff.
+my ( $message ) =@_;
+my ($part1,$part2) = unpack("NN",$message);
+$part1 = $part1<<32;
+$part1+=$part2;
+return $part1;
+}
+sub decode_64bit_number_u
 {
 # see comments on 64bit stuff.
 my ( $message ) =@_;
@@ -1405,6 +1619,7 @@ while ( $self->check_data_handles && $self->{_GLOBAL}{'ERROR'}!~/not connected/i
         # If the message is a connect_response, send a flow_start
         if ( $self->return_current_type()=~/^CONNECT_RESPONSE$/i )
                 { 
+		$self->log("CONNECT_RESPONSE");
 		$self->send_get_sessions(); 
 #		$self->update_session_parameters();
 		}
@@ -1415,18 +1630,27 @@ while ( $self->check_data_handles && $self->{_GLOBAL}{'ERROR'}!~/not connected/i
         # If the message is a template data, store the template
         # and ack the template
         if ( $self->return_current_type()=~/^TEMPLATE_DATA$/i )
-                { $self->send_final_template_data_ack(); }
+                {
+		$self->log("TEMPLATE_DATA");
+		$self->send_final_template_data_ack(); 
+		}
 
         # If the message is a session_start just send a keep
         # alive.
         if ( $self->return_current_type()=~/^SESSION_START$/i )
-                { $self->send_get_keepalive(); }
+                { 
+		$self->log("SESSION_START");
+		$self->send_get_keepalive(); 
+		}
 
         # If the message is a keep alive, send one back.
         # This function does a little more, but has been
         # made a wrapper to keep the code clean.
         if ( $self->return_current_type()=~/^KEEP_ALIVE$/i )
-                { $self->send_get_keepalive(); }
+                { 
+		$self->log("KEEP_ALIVE");
+		$self->send_get_keepalive(); 
+		}
 
         # If the message is a data message, process it.
         # This also sends one keepalive upon receipt
@@ -1492,6 +1716,7 @@ while ( $self->check_data_handles && $self->{_GLOBAL}{'ERROR'}!~/not connected/i
 	# session stop is not always a disconnect.
         if ( $self->return_current_type()=~/^SESSION_STOP$/i )
                 {
+		$self->log("SESSION_STOP");
 		$self->send_get_keepalive();
                 #$ipdr_client->{_GLOBAL}{'Selector'}->remove( $ipdr_client->{_GLOBAL}{'Handle'} );
                 }
@@ -1500,6 +1725,7 @@ while ( $self->check_data_handles && $self->{_GLOBAL}{'ERROR'}!~/not connected/i
         # went wrong somewhere.
         if ( $self->return_current_type()=~/^ERROR$/i )
                 {
+		$self->log("ERROR");
 		print "Disconnect and closed TCP.\n" if $self->{_GLOBAL}{'DEBUG'}>0;
                 return 0;
                 }
@@ -1512,6 +1738,16 @@ return 1;
 }
 
 # ***************************************************************
+
+sub log
+{
+my ( $self ) = shift;
+my ( $message ) = shift;
+my ( $decode_data ) = $self->{_GLOBAL}{'current_data'};
+my ( $time ) = time();
+
+return 1;
+}
 
 sub check_data_handles
 {
@@ -1548,10 +1784,27 @@ foreach my $handle ( @{$handles} )
         	{ $handle->close(); return 1; }
 
 	print "Read buffer size of '".length($buffer)."'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
+
+	if ( !$self->connected )
+		{
+		$handle->close(); return 1;
+		}
+
+	if ( length($buffer) == 0 )
+		{
+		$handle->close(); return 1;
+		}
+
 	$self->{_GLOBAL}{'data_received'} .=$buffer;
 	}
 print "Length in buffer is '".length($self->{_GLOBAL}{'data_received'})."'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
 $self->{_GLOBAL}{'data_processing'}=1;
+}
+
+sub ReturnPollTime
+{
+my ( $self ) = shift;
+return $self->{_GLOBAL}{'PollTime'};
 }
 
 sub get_error
@@ -1608,25 +1861,79 @@ $data = substr($data,4,length($data)-4);
 
 foreach my $variable ( sort {$a<=> $b } keys %{${$template}{'Templates'}{$template_id}{'fields'}} )
 	{
-	#print "Type id is '${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'typeID'}'\n";
+	print "Type id is '${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'typeID'}' field is '$variable'\n";
 	my $type = $template_params{ ${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'typeID'} };
 	if ( $type=~/^string$/i )
 		{ ( $resulting_value, $data ) = _extract_utf8_string ( $data ); }
 	if ( $type=~/^network_ip$/i )
 		{ ( $resulting_value, $data ) = _extract_ip_string ( $data ); }
+
+	if ( $type=~/^network_int_u$/i )
+		{ ( $resulting_value, $data ) = _extract_int_u ( $data ); }
+
 	if ( $type=~/^network_int$/i )
-		{ ( $resulting_value, $data ) = _extract_int ( $data ); }
+		{ ( $resulting_value, $data ) = $self->_extract_int ( $data ); }
+
 	if ( $type=~/^unknown_/i )
 		{ ( $data ) = _extract_unknown ( $data, $type ); }
 	if ( $type=~/^mac$/i )
-		{ ( $resulting_value, $data ) = _extract_mac ( $data, $type ); }
+		{ ( $resulting_value, $data ) = _extract_mac ( $self, $data ); }
+
 	if ( $type=~/^long$/i )
 		{ ( $resulting_value, $data ) = _extract_long ( $data ); }
+	if ( $type=~/^long_u$/i )
+		{ ( $resulting_value, $data ) = _extract_long_u ( $data ); }
+
+	if ( $type=~/^float$/i )
+		{ ( $resulting_value, $data ) = _extract_float ( $data ); }
+
+	if ( $type=~/^double$/i )
+		{ ( $resulting_value, $data ) = _extract_double ( $data ); }
+
+	if ( $type=~/^boolean$/i )
+		{ ( $resulting_value, $data ) = _extract_boolean ( $data ); }
+
+	if ( $type=~/^byte$/i )
+		{ ( $resulting_value, $data ) = _extract_char ( $data ); }
+	if ( $type=~/^byte_u$/i )
+		{ ( $resulting_value, $data ) = _extract_char_u ( $data ); }
+
+	if ( $type=~/^short$/i )
+		{ ( $resulting_value, $data ) = _extract_short ( $data ); }
+	if ( $type=~/^short_u$/i )
+		{ ( $resulting_value, $data ) = _extract_short_u ( $data ); }
+
+	if ( $type=~/^ipv6addr$/i )
+		{ ( $resulting_value, $data ) = _extract_ipv6addr ( $data ); }
+
+	if ( $type=~/^uuid$/i )
+		{ ( $resulting_value, $data ) = _extract_uuid ( $data ); }
+
+	if ( $type=~/^datetimeusec$/i )
+		{ ( $resulting_value, $data ) = _extract_datetimeusec ( $data ); }
+
+	if ( $type=~/^ipaddr$/i )
+		{ ( $resulting_value, $data ) = _extract_ipaddr ( $data ); }
+
+
 	if ( $type=~/^ip_list$/i )
 		{ ( $resulting_value, $data ) = _extract_list ( $self, $data ); }
+	print "Resulting value is '$resulting_value'\n";
 	${$exported_data}{ ${$record}{'DATA_Sequence'} }{ ${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'name'} }=$resulting_value;
 	}
 return 1;
+}
+
+sub _reverse_pattern
+{
+my ( $data ) = @_;
+my ( $result ) = "";
+my ( $data_length ) = length($data);
+for ( my $loop=0; $loop<$data_length; $loop++ )
+        {
+        $result.= substr( $data, ($data_length-$loop)-1, 1);
+        }
+return $result;
 }
 
 sub test_64_bit
@@ -1675,6 +1982,8 @@ my $ipdrcreationtime;
 
 foreach my $sequence ( sort { $a<=>$b } keys %{$data_pointer} )
         {
+	if ( !${$data_pointer}{$sequence}{'CMcpeIpv4List'} )
+		{ ${$data_pointer}{$sequence}{'CMcpeIpv4List'}=""; }
 	$xml.="<IPDR xsi:type=\"DOCSIS-Type\">";
 	$xml.="<IPDRcreationTime>".${$data_pointer}{$sequence}{'RecCreationTime'}."</IPDRcreationTime>";
 	$xml.="<CMTShostName>".${$data_pointer}{$sequence}{'CMTShostName'}."</CMTShostName>";

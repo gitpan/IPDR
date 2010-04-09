@@ -6,7 +6,7 @@ use IPDR::Collection::Client;
 my $ipdr_client = new IPDR::Collection::Client (
 			[
 			VendorID => 'IPDR Client',
-			ServerIP => '80.194.79.221',
+			ServerIP => '192.168.1.1',
 			ServerPort => '6000',
 			KeepAlive => 60,
 			Capabilities => 0x01,
