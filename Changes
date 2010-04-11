@@ -8,6 +8,8 @@ artistic_2 license and any changes made,bugs found, general information
 
 additions should be presented back to the author.
 
+0.29_01	10/04/2010
+	Removed some debug not controlled by the DEBUG flag.
 0.29	6/04/2010
 	Added SessionName so that you can specify by name the session
 	you wish to use on the remote server. This allows multiple

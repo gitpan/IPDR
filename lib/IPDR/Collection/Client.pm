@@ -16,11 +16,11 @@ IPDR::Collection::Client - IPDR Collection Client
 
 =head1 VERSION
 
-Version 0.29
+Version 0.29_01
 
 =cut
 
-our $VERSION = '0.29';
+our $VERSION = '0.29_01';
 
 =head1 SYNOPSIS
 
@@ -1861,7 +1861,7 @@ $data = substr($data,4,length($data)-4);
 
 foreach my $variable ( sort {$a<=> $b } keys %{${$template}{'Templates'}{$template_id}{'fields'}} )
 	{
-	print "Type id is '${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'typeID'}' field is '$variable'\n";
+	#print "Type id is '${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'typeID'}' field is '$variable'\n";
 	my $type = $template_params{ ${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'typeID'} };
 	if ( $type=~/^string$/i )
 		{ ( $resulting_value, $data ) = _extract_utf8_string ( $data ); }
@@ -1918,7 +1918,6 @@ foreach my $variable ( sort {$a<=> $b } keys %{${$template}{'Templates'}{$templa
 
 	if ( $type=~/^ip_list$/i )
 		{ ( $resulting_value, $data ) = _extract_list ( $self, $data ); }
-	print "Resulting value is '$resulting_value'\n";
 	${$exported_data}{ ${$record}{'DATA_Sequence'} }{ ${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'name'} }=$resulting_value;
 	}
 return 1;
@@ -2184,7 +2183,7 @@ if ( $self->{_GLOBAL}{'RemoteMulti'} )
                                         #print "handle is '$write'\n";
                                         if ( length($data)<=$send_size)
                                                 {
-                                                print "ASending '$data'\n\n\n";
+                                                #print "ASending '$data'\n\n\n";
                                                 $print_status = print $write $data;
 						# we need the last data chunk
 						#$padding = $data;
@@ -2195,7 +2194,7 @@ if ( $self->{_GLOBAL}{'RemoteMulti'} )
                                                 {
                                                 $chunk = substr($data,0,$send_size);
                                                 $print_status = print $write $chunk;
-                                                print "BSending '$chunk'\n\n\n";
+                                                #print "BSending '$chunk'\n\n\n";
                                                 $data = substr($data,$send_size,length($data)-$send_size);
                                                 }
                                         }
