@@ -8,6 +8,7 @@ use IO::Socket::SSL qw(debug3);
 use Unicode::MapUTF8 qw(to_utf8 from_utf8 utf8_supported_charset);
 use Time::localtime;
 use Time::HiRes qw( usleep ualarm gettimeofday tv_interval clock_gettime clock_getres );
+use Math::BigInt;
 $SIG{CHLD}="IGNORE";
 
 =head1 NAME
@@ -16,11 +17,11 @@ IPDR::Collection::Client - IPDR Collection Client
 
 =head1 VERSION
 
-Version 0.29_01
+Version 0.32
 
 =cut
 
-our $VERSION = '0.29_01';
+our $VERSION = '0.32';
 
 =head1 SYNOPSIS
 
@@ -190,6 +191,8 @@ only. They do differ between Client and Cisco however both module provide the sa
 generic methods, high level, so the internal workings should not concern the 
 casual user.
 
+XDR File Location http://www.ipdr.org/public/DocumentMap/XDR3.6.pdf
+
 =cut
 
 sub new {
@@ -251,6 +254,9 @@ sub new {
         if ( !$self->{_GLOBAL}{'RemoteSpeed'} )
                 { $self->{_GLOBAL}{'RemoteSpeed'}=10; }
 
+        if ( !$self->{_GLOBAL}{'PacketDirectory'} )
+                { $self->{_GLOBAL}{'PacketDirectory'}=""; }
+
         if ( !$self->{_GLOBAL}{'XMLDirectory'} )
                 { $self->{_GLOBAL}{'XMLDirectory'}=""; }
 
@@ -274,6 +280,8 @@ sub new {
         if ( !$self->{_GLOBAL}{'BigLittleEndian'} )
 	                { $self->{_GLOBAL}{'BigLittleEndian'}=0; }
 
+        if ( !$self->{_GLOBAL}{'64BitWarningOff'} )
+                        { $self->{_GLBOAL}{'64BitWarningOff'}=0; }
 
 
 	$self->{_GLOBAL}{'data_ack'}=0;
@@ -917,7 +925,10 @@ if ( !$self->test_64_bit() )
 	{
 	# if you forgot to run make test, this will clobber
 	# your run anyway.
-	die '64Bit support not available must stop.';
+        if ( $self->{_GLOBAL}{'64BitWarningOff'}!=1 )
+                {
+                warn '64Bit support not available using BigInt - Milleage will vary! Turn off with 64BitWarningOff => 1.';
+                }
 	}
 
 my $lsn = IO::Socket::INET->new
@@ -1410,7 +1421,7 @@ my ($ipv6addr) = sprintf("%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:
                 $five_o, $five_t, $six_o, $six_t,
                 $seven_o, $seven_t, $eight_o, $eight_t);
 
-$data=substr($data,16,length($data)-16);
+$data=substr($data,20,length($data)-20);
 return ($ipv6addr,$data);
 }
 
@@ -1475,23 +1486,143 @@ sub _extract_list
 {
 my ( $self ) = shift;
 my ( $data ) = shift;
-my ( $string_len ) = unpack ("N",$data);
-$data=substr($data,4,length($data)-4);
-my ( $ip_list ) = substr($data,0,$string_len);
-my ( $returned_list ) = "";
-while ( length($ip_list)>0 )
+my ( $type ) = shift;
+
+if ($self->{_GLOBAL}{'DEBUG'}>0 )
 	{
-	my $structure = substr($ip_list,0,4);
+
+print "Check self is '".$self."'\n";
+print "Check data len is '".length($data)."'\n";
+print "Check type is '$type'\n";
+	}
+
+my ( $string_len ) = 0;
+
+# Looks like a field length is 16 bit 
+# if the field type is serviceflowchSet 
+# otherwise I am setting it to be 32bits
+# per the default speficiation for field
+# type list.
+if ( $type =~/^ServiceFlowChSet$/i )
+	{
 	if ($self->{_GLOBAL}{'DEBUG'}>0 )
 		{
-	        for($a=0;$a<length($structure);$a++)
-                	{
-                	print ord (substr($structure,$a,1))." ";
-                	}
+		print "ServiceFlowChSet field being used.\n";
+		print "Header extracted.\n";
 		}
-	$ip_list = substr($ip_list,4,length($ip_list)-4);
-	$returned_list.=ord(substr($structure,0,1)).".".ord(substr($structure,1,1)).".".ord(substr($structure,2,1)).".".ord(substr($structure,3,1)).",";
+	( $string_len ) = unpack ("N",$data);
+	# snarf the header
+	$data=substr($data,4,length($data)-4);
 	}
+	else
+	{
+	( $string_len ) = unpack ("N",$data);
+	# snarf the header
+	$data=substr($data,4,length($data)-4);
+	}
+
+if ($self->{_GLOBAL}{'DEBUG'}>0 )
+	{
+	print "List Debug length is '".$string_len."'\n";
+	print "List type is '$type'\n";
+	}
+
+# Remove the list data and return 
+#
+my ( $returned_list ) = "";
+
+#if ( $type =~/^ServiceFlowChSet$/i )
+#	{
+	# This is bascially a list of numbers so we do that
+	if ($self->{_GLOBAL}{'DEBUG'}>0 )
+		{
+		print "ServiceFlowChSet field being used.\n";
+		print "Data extracted.\n";
+		}
+	if ( $string_len%2 > 0 )
+		{
+		# Here we have to capture the error but also
+		# make the data available.
+		if ($self->{_GLOBAL}{'DEBUG'}>0 )
+			{
+			print "Something serious happened here as length is wrong.\n";
+			
+			for ( $a=0; $a<$string_len; $a++ )
+				{
+				$returned_list.=ord(substr($data,$a,1)).",";
+				}
+			}
+		}
+		else
+		{
+		# We know we have a good data length so now we decode it
+		if ($self->{_GLOBAL}{'DEBUG'}>0 )
+			{
+			print "ServiceFlowChSet length is correct modulus.\n";
+			}
+		for ( $a=0;$a<$string_len; $a+=2 )
+			{
+			if ($self->{_GLOBAL}{'DEBUG'}>0 )
+				{
+				print "Count routine is '".$a."'\n";
+				}
+			my $partial = substr($data,$a,2);
+			if ($self->{_GLOBAL}{'DEBUG'}>0 )
+				{
+				print "Length of partial is '".length($partial)."'\n";
+				}
+			if ( length($partial)==2) 
+				{
+				if ($self->{_GLOBAL}{'DEBUG'}>0 )
+					{
+					print "Partial length correct.\n";
+					}
+				my ($unpp) = unpack("n",$partial);
+				if ($self->{_GLOBAL}{'DEBUG'}>0 )
+					{
+					print "Value of decoded is '".$unpp."'\n";
+					}
+				$returned_list .=$unpp.",";
+				}
+				else
+				{
+				if ($self->{_GLOBAL}{'DEBUG'}>0 )
+					{
+					print "Partial extract wrong, ignoring.\n";
+					}
+				}
+			}
+		}
+
+#	}
+
+#if ( $type !~/^ServiceFlowChSet$/i )
+#	{
+#	if ($self->{_GLOBAL}{'DEBUG'}>0 )
+#		{
+#		print "Field type '$type' being used.\n";
+#		}
+#
+#	my ( $ip_list ) = substr($data,0,$string_len);
+#	while ( length($ip_list)>0 )
+#		{
+#		my $structure = substr($ip_list,0,4);
+#
+#		$ip_list = substr($ip_list,4,length($ip_list)-4);
+#
+#		if ($self->{_GLOBAL}{'DEBUG'}>0 )
+#			{
+#			print "List Debug structure length is '".length($structure)."'\n";
+#			print "Length of ip_list is '".length($ip_list)."'\n";
+#		        for($a=0;$a<length($structure);$a++)
+#       		         	{
+#       		         	print ord (substr($structure,$a,1))." ";
+#               		 	}
+#			}
+#		$returned_list.=ord(substr($structure,0,1)).".".ord(substr($structure,1,1)).".".ord(substr($structure,2,1)).".".ord(substr($structure,3,1)).",";
+#		}
+#	}
+
 if ( length($returned_list)>0 )
 	{ 
 	chop($returned_list); 
@@ -1500,6 +1631,7 @@ if ( length($returned_list)>0 )
 		print "\n\n$returned_list\n\n";
 		}
 	}
+
 $data=substr($data,$string_len,length($data)-$string_len);
 return ($returned_list,$data);
 }
@@ -1564,15 +1696,33 @@ $part1 = $part1<<32;
 $part1+=$part2;
 return $part1;
 }
+
 sub decode_64bit_number_u
 {
 # see comments on 64bit stuff.
 my ( $message ) =@_;
 my ($part1,$part2) = unpack("NN",$message);
+if ( !test_64_bit() )
+        {
+        return (
+        Math::BigInt
+              ->new("0x" . unpack("H*", pack("N2", $part1, $part2)))
+                  );
+        }
 $part1 = $part1<<32;
 $part1+=$part2;
 return $part1;
 }
+
+#sub decode_64bit_number_u
+#{
+## see comments on 64bit stuff.
+#my ( $message ) =@_;
+#my ($part1,$part2) = unpack("NN",$message);
+#$part1 = $part1<<32;
+#$part1+=$part2;
+#return $part1;
+#}
 
 sub encode_64bit_number
 {
@@ -1580,12 +1730,32 @@ sub encode_64bit_number
 # and this is the quickest way to fix it.
 # You STILL NEED 64 BIT SUPPORT!!
 my ( $number ) = @_;
+if ( !test_64_bit() )
+        {
+        my $i = new Math::BigInt $number;
+        my $j = new Math::BigInt $i->brsft(32);
+        my $k = $i - $j->blsft(32);
+        return pack('NN', $j, $k);
+        }
 # any bit to 64bit number in.
 my($test1) = $number & 0xFFFFFFFF; $number >>= 32;
 my($test2) = $number & 0xFFFFFFFF;
 my $message = pack("NN",$test2,$test1);
 return $message;
 }
+
+#sub encode_64bit_number
+#{
+## It seems Q does not work, well not for me
+## and this is the quickest way to fix it.
+## You STILL NEED 64 BIT SUPPORT!!
+#my ( $number ) = @_;
+## any bit to 64bit number in.
+#my($test1) = $number & 0xFFFFFFFF; $number >>= 32;
+#my($test2) = $number & 0xFFFFFFFF;
+#my $message = pack("NN",$test2,$test1);
+#return $message;
+#}
 
 sub check_data_available
 {
@@ -1840,6 +2010,16 @@ my ( $template ) = $self->{_GLOBAL}{'template'};
 my ( $template_id ) = ${$record}{'DATA_TemplateID'};
 my ( $data ) = ${$record}{'DATA_Data'};
 
+my $location = $self->{_GLOBAL}{'PacketDirectory'};
+
+my $epoch = time();
+
+my $rand = int(rand(100000));
+
+open (__PACKET_DATA,">$location/packet_$epoch\_$rand");
+print __PACKET_DATA $data;
+close (__PACKET_DATA);
+
 $self->set_internal_value('dsn_sequence',${$record}{'DATA_Sequence'} );
 $self->set_internal_value('dsn_configID',${$record}{'DATA_ConfigID'} );
 
@@ -1861,8 +2041,12 @@ $data = substr($data,4,length($data)-4);
 
 foreach my $variable ( sort {$a<=> $b } keys %{${$template}{'Templates'}{$template_id}{'fields'}} )
 	{
-	#print "Type id is '${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'typeID'}' field is '$variable'\n";
+#	print "Type id is '${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'typeID'}' field is '$variable'\n"; 
 	my $type = $template_params{ ${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'typeID'} };
+#	print "Type name is '".$type."'\n";
+
+	my $template_type = ${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'name'};
+
 	if ( $type=~/^string$/i )
 		{ ( $resulting_value, $data ) = _extract_utf8_string ( $data ); }
 	if ( $type=~/^network_ip$/i )
@@ -1917,7 +2101,8 @@ foreach my $variable ( sort {$a<=> $b } keys %{${$template}{'Templates'}{$templa
 
 
 	if ( $type=~/^ip_list$/i )
-		{ ( $resulting_value, $data ) = _extract_list ( $self, $data ); }
+		{ ( $resulting_value, $data ) = $self->_extract_list ( $data , $template_type); }
+	#print "Resulting value is '$resulting_value'\n";
 	${$exported_data}{ ${$record}{'DATA_Sequence'} }{ ${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'name'} }=$resulting_value;
 	}
 return 1;
@@ -2183,7 +2368,7 @@ if ( $self->{_GLOBAL}{'RemoteMulti'} )
                                         #print "handle is '$write'\n";
                                         if ( length($data)<=$send_size)
                                                 {
-                                                #print "ASending '$data'\n\n\n";
+                                                print "ASending '$data'\n\n\n";
                                                 $print_status = print $write $data;
 						# we need the last data chunk
 						#$padding = $data;
@@ -2194,7 +2379,7 @@ if ( $self->{_GLOBAL}{'RemoteMulti'} )
                                                 {
                                                 $chunk = substr($data,0,$send_size);
                                                 $print_status = print $write $chunk;
-                                                #print "BSending '$chunk'\n\n\n";
+                                                print "BSending '$chunk'\n\n\n";
                                                 $data = substr($data,$send_size,length($data)-$send_size);
                                                 }
                                         }
@@ -2261,7 +2446,7 @@ Thanks to http://www.streamsolutions.co.uk/ for my Flash Streaming Server
 
 =head1 COPYRIGHT & LICENSE
 
-Copyright 2009 Andrew S. Kennedy, all rights reserved.
+Copyright 2011 Andrew S. Kennedy, all rights reserved.
 
 This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

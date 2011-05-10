@@ -7,9 +7,24 @@ artistic_2 license and any changes made,bugs found, general information
 
 
 additions should be presented back to the author.
-
-0.29_01	10/04/2010
-	Removed some debug not controlled by the DEBUG flag.
+0.31_3	10/05/2011
+	Dots, dashes, equals missing in places they should not have been. You
+	can tell I havent looked at IPDR for quite a while.
+0.31_2	10/05/2011
+	Final fix for list extract(not really list), multiple typos and overall
+	stupid coding fixed.
+0.31	9/05/2011
+	Thanks to Rui Dias dias < dot> rp <at > gmail <dot > com for helping in debug
+	in a live environment.
+	Fixed IPV6 length problem which caused other issues
+	Changed the type IPList to handle provided data correctly. Each element is two
+	bytes 
+	Added support for different field names, but the same field type (number)
+0.30    4/04/2011
+        Fixed a double $$ typo for file creation
+        Added (as a temp test) Math::BigInt support for 32bit systems for the
+        Client.pm module, for Cisco*.pm you are out of luck.
+        Math::BigInt 1.77 is now a requirement.
 0.29	6/04/2010
 	Added SessionName so that you can specify by name the session
 	you wish to use on the remote server. This allows multiple
