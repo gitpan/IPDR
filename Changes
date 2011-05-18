@@ -7,6 +7,17 @@ artistic_2 license and any changes made,bugs found, general information
 
 
 additions should be presented back to the author.
+0.35	18/05/2011
+	Added more debugging output when DEBUG is set.
+0.34	16/05/2011
+	PacketDirectory code changed so you do not actually have to capture
+	packets, small but important element !
+0.33	16/05/2011
+	Added Variable hexBinarySingle. This forces the module to ingest
+	hexBinary data as single bytes not 16bit wide bytes. Default
+	this is set to off.
+0.32	12/05/2011
+	Released as confirmed working
 0.31_3	10/05/2011
 	Dots, dashes, equals missing in places they should not have been. You
 	can tell I havent looked at IPDR for quite a while.

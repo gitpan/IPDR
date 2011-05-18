@@ -16,11 +16,11 @@ IPDR::Collection::Cisco - IPDR Collection Client (Cisco Specification)
 
 =head1 VERSION
 
-Version 0.32
+Version 0.35
 
 =cut
 
-our $VERSION = '0.32';
+our $VERSION = '0.35';
 
 =head1 SYNOPSIS
 

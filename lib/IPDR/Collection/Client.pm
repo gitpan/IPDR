@@ -17,11 +17,11 @@ IPDR::Collection::Client - IPDR Collection Client
 
 =head1 VERSION
 
-Version 0.32
+Version 0.35
 
 =cut
 
-our $VERSION = '0.32';
+our $VERSION = '0.35';
 
 =head1 SYNOPSIS
 
@@ -282,6 +282,9 @@ sub new {
 
         if ( !$self->{_GLOBAL}{'64BitWarningOff'} )
                         { $self->{_GLBOAL}{'64BitWarningOff'}=0; }
+
+        if ( !$self->{_GLOBAL}{'hexBinarySingle'} )
+                        { $self->{_GLBOAL}{'hexBinarySingle'}=0; }
 
 
 	$self->{_GLOBAL}{'data_ack'}=0;
@@ -1503,23 +1506,9 @@ my ( $string_len ) = 0;
 # otherwise I am setting it to be 32bits
 # per the default speficiation for field
 # type list.
-if ( $type =~/^ServiceFlowChSet$/i )
-	{
-	if ($self->{_GLOBAL}{'DEBUG'}>0 )
-		{
-		print "ServiceFlowChSet field being used.\n";
-		print "Header extracted.\n";
-		}
-	( $string_len ) = unpack ("N",$data);
-	# snarf the header
-	$data=substr($data,4,length($data)-4);
-	}
-	else
-	{
-	( $string_len ) = unpack ("N",$data);
-	# snarf the header
-	$data=substr($data,4,length($data)-4);
-	}
+( $string_len ) = unpack ("N",$data);
+# snarf the header
+$data=substr($data,4,length($data)-4);
 
 if ($self->{_GLOBAL}{'DEBUG'}>0 )
 	{
@@ -1560,6 +1549,19 @@ my ( $returned_list ) = "";
 			{
 			print "ServiceFlowChSet length is correct modulus.\n";
 			}
+		# The default is the correct 16bit snarfing of a hexBinary
+		# data string. Now, it appears that using the data as an 8bit
+		# dataset is sometimes preferred, so by setting hexBinarySingle
+		# we do that too.
+		if ( $self->{_GLOBAL}{'hexBinarySingle'}==1 )
+			{
+			for ( $a=0; $a<$string_len; $a++ )
+				{
+				$returned_list.=ord(substr($data,$a,1)).",";
+				}
+			}
+			else
+			{
 		for ( $a=0;$a<$string_len; $a+=2 )
 			{
 			if ($self->{_GLOBAL}{'DEBUG'}>0 )
@@ -1591,6 +1593,7 @@ my ( $returned_list ) = "";
 					print "Partial extract wrong, ignoring.\n";
 					}
 				}
+			}
 			}
 		}
 
@@ -2010,15 +2013,15 @@ my ( $template ) = $self->{_GLOBAL}{'template'};
 my ( $template_id ) = ${$record}{'DATA_TemplateID'};
 my ( $data ) = ${$record}{'DATA_Data'};
 
-my $location = $self->{_GLOBAL}{'PacketDirectory'};
-
-my $epoch = time();
-
-my $rand = int(rand(100000));
-
-open (__PACKET_DATA,">$location/packet_$epoch\_$rand");
-print __PACKET_DATA $data;
-close (__PACKET_DATA);
+if ( length( $self->{_GLOBAL}{'PacketDirectory'} ) > 0 )
+	{
+	my $location = $self->{_GLOBAL}{'PacketDirectory'};
+	my $epoch = time();
+	my $rand = int(rand(100000));
+	open (__PACKET_DATA,">$location/packet_$epoch\_$rand");
+	print __PACKET_DATA $data;
+	close (__PACKET_DATA);
+	}
 
 $self->set_internal_value('dsn_sequence',${$record}{'DATA_Sequence'} );
 $self->set_internal_value('dsn_configID',${$record}{'DATA_ConfigID'} );
@@ -2041,11 +2044,12 @@ $data = substr($data,4,length($data)-4);
 
 foreach my $variable ( sort {$a<=> $b } keys %{${$template}{'Templates'}{$template_id}{'fields'}} )
 	{
-#	print "Type id is '${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'typeID'}' field is '$variable'\n"; 
+	print "Type id is '${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'typeID'}' field is '$variable'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
 	my $type = $template_params{ ${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'typeID'} };
-#	print "Type name is '".$type."'\n";
-
 	my $template_type = ${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'name'};
+
+	print "Type name is '".$type."'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
+	print "Template variable name is '".$template_type."'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
 
 	if ( $type=~/^string$/i )
 		{ ( $resulting_value, $data ) = _extract_utf8_string ( $data ); }
@@ -2102,7 +2106,7 @@ foreach my $variable ( sort {$a<=> $b } keys %{${$template}{'Templates'}{$templa
 
 	if ( $type=~/^ip_list$/i )
 		{ ( $resulting_value, $data ) = $self->_extract_list ( $data , $template_type); }
-	#print "Resulting value is '$resulting_value'\n";
+	print "Resulting value is '$resulting_value'\n" if $self->{_GLOBAL}{'DEBUG'}>0;
 	${$exported_data}{ ${$record}{'DATA_Sequence'} }{ ${$template}{'Templates'}{$template_id}{'fields'}{$variable}{'name'} }=$resulting_value;
 	}
 return 1;
