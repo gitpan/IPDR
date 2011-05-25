@@ -17,11 +17,11 @@ IPDR::Collection::Client - IPDR Collection Client
 
 =head1 VERSION
 
-Version 0.37
+Version 0.40
 
 =cut
 
-our $VERSION = '0.37';
+our $VERSION = '0.40';
 
 =head1 SYNOPSIS
 
@@ -285,10 +285,13 @@ sub new {
 	                { $self->{_GLOBAL}{'BigLittleEndian'}=0; }
 
         if ( !$self->{_GLOBAL}{'Warning64BitOff'} )
-                        { $self->{_GLBOAL}{'Warning64BitOff'}=0; }
+                        { $self->{_GLOBAL}{'Warning64BitOff'}=0; }
 
         if ( !$self->{_GLOBAL}{'hexBinarySingle'} )
-                        { $self->{_GLBOAL}{'hexBinarySingle'}=0; }
+                        { $self->{_GLOBAL}{'hexBinarySingle'}=0; }
+
+        if ( !$self->{_GLOBAL}{'InitiatorID'} )
+                        { $self->{_GLOBAL}{'InitiatorID'}=""; }
 
 
 	$self->{_GLOBAL}{'data_ack'}=0;
@@ -970,7 +973,14 @@ if (!$lsn)
 	return 0;
 	}
 
-$self->{_GLOBAL}{'LocalIP'}=$lsn->sockhost();
+if ( length($self->{_GLOBAL}{'InitiatorID'})>0 )
+	{
+	$self->{_GLOBAL}{'LocalIP'}=$self->{_GLOBAL}{'InitiatorID'};
+	}
+	else
+	{
+	$self->{_GLOBAL}{'LocalIP'}=$lsn->sockhost();
+	}
 $self->{_GLOBAL}{'LocalPort'}=$lsn->sockport();
 $self->{_GLOBAL}{'Handle'} = $lsn;
 $self->{_GLOBAL}{'Selector'}=new IO::Select( $lsn );
@@ -1493,7 +1503,7 @@ return ($return_data,$data);
 sub _extract_long_u
 {
 my ( $data ) = @_;
-my ( $long ) = decode_64bit_number_u ( $data );
+my ( $long ) = decode_64bit_number ( $data );
 $data=substr($data,8,length($data)-8);
 return ($long,$data);
 }
@@ -1711,7 +1721,7 @@ $template_params{2087}="ipaddr";
 return %template_params;
 }
 
-sub decode_64bit_number
+sub decode_64bit_number_u
 {
 # see comments on 64bit stuff.
 my ( $message ) =@_;
@@ -1721,7 +1731,7 @@ $part1+=$part2;
 return $part1;
 }
 
-sub decode_64bit_number_u
+sub decode_64bit_number
 {
 # see comments on 64bit stuff.
 my ( $message ) =@_;
@@ -1756,10 +1766,9 @@ sub encode_64bit_number
 my ( $number ) = @_;
 if ( !test_64_bit() )
         {
-        my $i = new Math::BigInt $number;
-        my $j = new Math::BigInt $i->brsft(32);
-        my $k = $i - $j->blsft(32);
-        return pack('NN', $j, $k);
+	my $i = Math::BigInt->new($number);
+	my $j = Math::BigInt->new($number)->brsft(32);
+	return pack('NN', $j, $i );
         }
 # any bit to 64bit number in.
 my($test1) = $number & 0xFFFFFFFF; $number >>= 32;

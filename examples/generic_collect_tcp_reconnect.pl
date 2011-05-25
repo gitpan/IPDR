@@ -11,7 +11,8 @@ my $ipdr_client = new IPDR::Collection::Client (
 			KeepAlive => 60,
 			Capabilities => 0x01,
 			DataHandler => \&display_data,
-			Warning64BitOff => 1,
+			Warning64BitOff =>1,
+			InitiatorID => '10.1.1.1',
 			DEBUG => 5,
 			Timeout => 2,
 			]

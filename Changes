@@ -7,6 +7,16 @@ artistic_2 license and any changes made,bugs found, general information
 
 
 additions should be presented back to the author.
+0.39	25/05/2011
+	Added initiator_id tag InitiatorID => '10.1.1.1' so you can set
+	the initiator to an IP address of your choice. Not too 
+	useful except for multi homed servers with one gateway 
+	defined.
+0.38	25/05/2011
+	Fixed Warning64BitOff properly. 
+	Fixed use if BigInt, some strange merging of code resulting in 
+	failing encode/decode of 64bit numbers
+	ACK sending.
 0.37	24/05/2011
 	Changed the 64BitWarningOff to Warning64BitOff, aparently you can not
 	use a number at the beginning of a variable name (weird).
