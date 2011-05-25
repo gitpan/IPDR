@@ -17,11 +17,11 @@ IPDR::Collection::Client - IPDR Collection Client
 
 =head1 VERSION
 
-Version 0.35
+Version 0.37
 
 =cut
 
-our $VERSION = '0.35';
+our $VERSION = '0.37';
 
 =head1 SYNOPSIS
 
@@ -274,14 +274,18 @@ sub new {
 
         if ( !$self->{_GLOBAL}{'LogDirectory'} )
 	                { $self->{_GLOBAL}{'LogDirectory'}=""; }
+
+        if ( !$self->{_GLOBAL}{'LocalAddr'} )
+	                { $self->{_GLOBAL}{'LocalAddr'}=""; }
+
         if ( !$self->{_GLOBAL}{'LogEnabled'} )
 	                { $self->{_GLOBAL}{'LogEnabled'}=0; }
 
         if ( !$self->{_GLOBAL}{'BigLittleEndian'} )
 	                { $self->{_GLOBAL}{'BigLittleEndian'}=0; }
 
-        if ( !$self->{_GLOBAL}{'64BitWarningOff'} )
-                        { $self->{_GLBOAL}{'64BitWarningOff'}=0; }
+        if ( !$self->{_GLOBAL}{'Warning64BitOff'} )
+                        { $self->{_GLBOAL}{'Warning64BitOff'}=0; }
 
         if ( !$self->{_GLOBAL}{'hexBinarySingle'} )
                         { $self->{_GLBOAL}{'hexBinarySingle'}=0; }
@@ -928,13 +932,29 @@ if ( !$self->test_64_bit() )
 	{
 	# if you forgot to run make test, this will clobber
 	# your run anyway.
-        if ( $self->{_GLOBAL}{'64BitWarningOff'}!=1 )
+        if ( $self->{_GLOBAL}{'Warning64BitOff'}!=1 )
                 {
-                warn '64Bit support not available using BigInt - Milleage will vary! Turn off with 64BitWarningOff => 1.';
+                warn '64Bit support not available using BigInt - Milleage will vary! Turn off with Warning64BitOff => 1.';
                 }
 	}
 
-my $lsn = IO::Socket::INET->new
+my $lsn;
+
+if ( length($self->{_GLOBAL}{'LocalAddr'})>0 )
+	{
+	$lsn = IO::Socket::INET->new
+                        (
+                        PeerAddr => $self->{_GLOBAL}{'ServerIP'},
+                        PeerPort => $self->{_GLOBAL}{'ServerPort'},
+			LocalAddr => $self->{_GLOBAL}{'LocalAddr'},
+                        ReuseAddr => 1,
+                        Proto     => 'tcp',
+			Timeout    => $self->{_GLOBAL}{'Timeout'}
+                        );
+	}
+	else
+	{
+	$lsn = IO::Socket::INET->new
                         (
                         PeerAddr => $self->{_GLOBAL}{'ServerIP'},
                         PeerPort => $self->{_GLOBAL}{'ServerPort'},
@@ -942,6 +962,7 @@ my $lsn = IO::Socket::INET->new
                         Proto     => 'tcp',
 			Timeout    => $self->{_GLOBAL}{'Timeout'}
                         );
+	}
 if (!$lsn)
 	{
 	$self->{_GLOBAL}{'STATUS'}="Failed To Connect";
@@ -1790,19 +1811,19 @@ while ( $self->check_data_handles && $self->{_GLOBAL}{'ERROR'}!~/not connected/i
 		}
 
         # If the message is a connect_response, send a flow_start
-        if ( $self->return_current_type()=~/^CONNECT_RESPONSE$/i )
+        if ( $last_message=~/^CONNECT_RESPONSE$/i )
                 { 
 		$self->log("CONNECT_RESPONSE");
 		$self->send_get_sessions(); 
 #		$self->update_session_parameters();
 		}
 
-	if ( $self->return_current_type()=~/^GET_SESSIONS_RESPONSE$/i )
+	if ( $last_message=~/^GET_SESSIONS_RESPONSE$/i )
 		{ $self->send_flow_start_message(); }
 
         # If the message is a template data, store the template
         # and ack the template
-        if ( $self->return_current_type()=~/^TEMPLATE_DATA$/i )
+        if ( $last_message=~/^TEMPLATE_DATA$/i )
                 {
 		$self->log("TEMPLATE_DATA");
 		$self->send_final_template_data_ack(); 
@@ -1810,7 +1831,7 @@ while ( $self->check_data_handles && $self->{_GLOBAL}{'ERROR'}!~/not connected/i
 
         # If the message is a session_start just send a keep
         # alive.
-        if ( $self->return_current_type()=~/^SESSION_START$/i )
+        if ( $last_message=~/^SESSION_START$/i )
                 { 
 		$self->log("SESSION_START");
 		$self->send_get_keepalive(); 
@@ -1839,6 +1860,8 @@ while ( $self->check_data_handles && $self->{_GLOBAL}{'ERROR'}!~/not connected/i
         if ( $self->{_GLOBAL}{'data_capture_running'}>=$self->{_GLOBAL}{'MaxRecords'}
                 && $self->{_GLOBAL}{'MaxRecords'}>0)
                 {
+		print "Max records reached was '".$self->{_GLOBAL}{'data_capture_running'}."'\n";
+		print "Max records limit   was '".$self->{_GLOBAL}{'MaxRecords'}."\n\n" if $self->{_GLOBAL}{'DEBUG'}>0;
                 $self->{_GLOBAL}{'data_capture_running'}=0;
                 $self->max_records_segment();
                 }

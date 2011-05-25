@@ -7,6 +7,16 @@ artistic_2 license and any changes made,bugs found, general information
 
 
 additions should be presented back to the author.
+0.37	24/05/2011
+	Changed the 64BitWarningOff to Warning64BitOff, aparently you can not
+	use a number at the beginning of a variable name (weird).
+0.36	22/05/2011
+	Added LocalAddr to new setup. If you have multiple interfaces
+	then set this to the IP of the interface you wish to use, ie.
+
+	LocalAddr => '10.1.1.1'
+
+	Would use the interface with the IP 10.1.1.1
 0.35	18/05/2011
 	Added more debugging output when DEBUG is set.
 0.34	16/05/2011
