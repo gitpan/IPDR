@@ -8,9 +8,11 @@ lib/IPDR.pm
 lib/IPDR/Collection/Client.pm
 lib/IPDR/Collection/CiscoSSL.pm
 lib/IPDR/Collection/Cisco.pm
+lib/IPDR/Process/XDR.pm
 examples/pubhostcert.pem
 examples/pubhostkey.pem
 examples/generic_collect_tcp_reconnect.pl
 examples/new_cisco_collect_tcp.pl
 examples/new_cisco_collect_tcp_ssl.pl
+examples/new_parse_xdr.pl
 t/64bitTest.t

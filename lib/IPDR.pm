@@ -6,16 +6,20 @@ IPDR - IPDR Data Suite
 
 =head1 VERSION
 
-Version 0.40
+Version 0.41
 
 =cut
 
-our $VERSION = '0.40';
+our $VERSION = '0.41';
 
 =head1 SYNOPSIS
 
 This is a IPDR collection suite for currently Cisco and generic IPDR compliant
 servers.
+
+To use the XDR module to extract XDR files see the man page
+
+IPDR::Process::XDR
 
 To use the Cisco implementation of IPDR (SAMIS) see the man page
 
